@@ -45,7 +45,9 @@ def task_js_build():
             'bugs': 'https://github.com/hat-open/hat-juggler/issues',
             'license': common.License.APACHE2.value,
             'main': 'index.js',
-            'repository': 'hat-open/hat-juggler'
+            'repository': 'hat-open/hat-juggler',
+            'dependencies': {'jiff': '*',
+                             '@hat-open/util': '*'}
         }, indent=4))
 
         subprocess.run(['npm', 'pack', '--silent'],
