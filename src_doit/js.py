@@ -22,7 +22,7 @@ def task_js_build():
 
     def mappings():
         yield (src_js_dir / '@hat-open/juggler.js',
-               build_dir / '@hat-open/juggler/index.js')
+               build_dir / 'index.js')
 
     def build():
         common.rm_rf(build_dir)
