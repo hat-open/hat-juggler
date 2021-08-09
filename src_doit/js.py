@@ -47,7 +47,8 @@ def task_js_build():
             'main': 'index.js',
             'repository': 'hat-open/hat-juggler',
             'dependencies': {'jiff': '*',
-                             '@hat-open/util': '*'}
+                             '@hat-open/util': '>=0.5.3',
+                             '@hat-open/future': '>=0.5.3'}
         }, indent=4))
 
         subprocess.run(['npm', 'pack', '--silent'],
