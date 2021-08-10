@@ -1,4 +1,4 @@
-aiohttp == 3.7.4.post0
-hat-aio
-hat-json
-hat-util
+aiohttp >= 3.7.4.post0
+hat-aio >= 0.5.1
+hat-json >= 0.5.1
+hat-util >= 0.5.4
