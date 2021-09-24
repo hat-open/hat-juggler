@@ -7,6 +7,7 @@ communication between back-end and GUI front-end parts of Hat components.
 
 import aiohttp.web
 import asyncio
+import functools
 import logging
 import pathlib
 import ssl
@@ -20,7 +21,7 @@ from hat import util
 mlog: logging.Logger = logging.getLogger(__name__)
 """Module logger"""
 
-ConnectionCb = typing.Callable[['Connection'], None]
+ConnectionCb = aio.AsyncCallable[['Connection'], None]
 """Connection callback"""
 util.register_type_alias('ConnectionCb')
 
@@ -164,7 +165,7 @@ class Server(aio.Resource):
         await ws.prepare(request)
         subgroup = self._async_group.create_subgroup()
         conn = _create_connection(subgroup, ws, self._autoflush_delay)
-        self._connection_cb(conn)
+        conn.async_group.spawn(aio.call, self._connection_cb, conn)
         await conn.wait_closed()
         return ws
 
@@ -386,13 +387,28 @@ def _create_ssl_context(pem_file):
 
 
 class RpcConnection(aio.Resource):
-    """Remote procedure call juggler connection wrapper"""
+    """Remote procedure call juggler connection wrapper
+
+    Actions are functions/coroutines identified by action name and called with
+    arguments received as part of `rpc` message.
+
+    If `actions` dictionary doesn't contain requested action, `default_action`
+    is used - first argument passed to `default_action` is requested action
+    name and rest of arguments are ones received as part of `rpc` message.
+
+    If `actions` dictionary doesn't contain requested action and
+    `default_action` is not defined, rpc call results with exception
+    response.
+
+    """
 
     def __init__(self,
                  conn: Connection,
-                 actions: typing.Dict[str, aio.AsyncCallable] = {}):
+                 actions: typing.Dict[str, aio.AsyncCallable] = {},
+                 default_action: typing.Optional[aio.AsyncCallable] = None):
         self._conn = conn
         self._actions = actions
+        self._default_action = default_action
         self._message_queue = aio.Queue()
         self._last_msg_id = 0
         self._call_futures = {}
@@ -523,6 +539,9 @@ class RpcConnection(aio.Resource):
     async def _process_msg_rpc_req(self, msg):
         action = self._actions.get(msg['action'])
         args = msg['args']
+
+        if not action and self._default_action:
+            action = functools.partial(self._default_action, msg['action'])
 
         try:
             if not action:

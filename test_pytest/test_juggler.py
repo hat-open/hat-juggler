@@ -254,6 +254,23 @@ async def test_rpc(server_port):
             await rpc1.call('not act', 321)
 
 
+async def test_rpc_default_action(server_port):
+
+    def default_action(action, *args):
+        return f"{action}: {', '.join(str(i) for i in args)}"
+
+    async with create_conn_pair(server_port, 0.001) as conn_pair:
+        conn1, conn2 = conn_pair
+        rpc1 = juggler.RpcConnection(conn1, default_action=default_action)
+        rpc2 = juggler.RpcConnection(conn2, default_action=default_action)
+
+        result = await rpc1.call('act', 123)
+        assert result == 'act: 123'
+
+        result = await rpc2.call('act', 1, 2, 3)
+        assert result == 'act: 1, 2, 3'
+
+
 async def test_example_docs():
 
     from hat import aio

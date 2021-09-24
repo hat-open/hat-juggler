@@ -69,3 +69,66 @@ https://tools.ietf.org/html/rfc6902. This messages are sent by peer once
 local data changes.
 
 `MESSAGE` messages provide asynchronous message passing communication.
+
+
+Remote procedure call
+---------------------
+
+.. note::
+
+    Juggler RPC is optional extension to base Juggler communication.
+    Support for this functionality is not mandatory.
+
+Exchange of asynchronous `MESSAGE` messages can be used as basis for RPC
+implementation. For this implementation, only messages, where payload is
+object containing property ``type`` with value ``rpc``, are used. All
+other messages are considered "regular" asynchronous messages - Juggler RPC
+passes them to user without additional processing.
+
+Payload of RPC messages is defined by following JSON Schema::
+
+    oneOf:
+      - type: object
+        required:
+            - type
+            - id
+            - direction
+            - action
+            - args
+        properties:
+            type:
+                const: rpc
+            id:
+                type: integer
+            direction:
+                const: request
+            action:
+                type: string
+            args:
+                type: array
+      - type: object
+        required:
+            - type
+            - id
+            - direction
+            - success
+            - result
+        properties:
+            type:
+                const: rpc
+            id:
+                type: integer
+            direction:
+                const: response
+            success:
+                type: boolean
+
+As with other asynchronous messages, Juggler RPC provides full-duplex
+communication. Each peer can initiate rpc exchange at any time.
+
+Single rpc exchange (session) consists of single request message and paired
+response message. Initiator of new session sends initial request message
+with `id` identifier. Each peer manages it's own identifier counter which
+is incremented with new request message sent by that peer. Once other peer
+receives rpc request, it should respond with response message containing
+`id` same as in request message.

@@ -28,7 +28,7 @@ Server
 `hat.juggler.listen` coroutine creates server listening for incomming
 juggler  connections::
 
-    ConnectionCb = typing.Callable[['Connection'], None]
+    ConnectionCb = aio.AsyncCallable[['Connection'], None]
 
     async def listen(host: str,
                      port: int,
@@ -85,44 +85,7 @@ and for server-side is the same::
 RpcConnection
 -------------
 
-Simple wrapper for juggler connection which provides remote procedure call
-mechanics. Additional communication utilizes juggler `MESSAGE` messages::
-
-    oneOf:
-      - type: object
-        required:
-            - type
-            - id
-            - direction
-            - action
-            - args
-        properties:
-            type:
-                const: rpc
-            id:
-                type: integer
-            direction:
-                const: request
-            action:
-                type: string
-            args:
-                type: array
-      - type: object
-        required:
-            - type
-            - id
-            - direction
-            - success
-            - result
-        properties:
-            type:
-                const: rpc
-            id:
-                type: integer
-            direction:
-                const: response
-            success:
-                type: boolean
+Juggler RPC wrapper for Juggler Connection.
 
 Provided API is similar to Connection's with addition of `actions` and `call`
 coroutine::
@@ -131,7 +94,8 @@ coroutine::
 
         def __init__(self,
                      conn: Connection,
-                     actions: typing.Dict[str, aio.AsyncCallable]): ...
+                     actions: typing.Dict[str, aio.AsyncCallable],
+                     default_action: typing.Optional[aio.AsyncCallable] = None): ...
 
         @property
         def async_group(self) -> aio.Group: ...
