@@ -25,11 +25,7 @@ def task_js_build():
             description='Hat juggler protocol',
             license=common.License.APACHE2,
             homepage='https://github.com/hat-open/hat-juggler',
-            repository='hat-open/hat-juggler',
-            dependencies={'jiff': '*',
-                          '@hat-open/util': '>=0.5.4',
-                          '@hat-open/future': '>=0.5.5',
-                          '@hat-open/renderer': '>=0.5.4'})
+            repository='hat-open/hat-juggler')
 
     return {'actions': [build],
             'task_dep': ['js_deps']}
