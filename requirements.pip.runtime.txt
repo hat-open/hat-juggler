@@ -1,4 +1,4 @@
-aiohttp ~= 3.8.0
-hat-aio ~= 0.5.1
-hat-json ~= 0.5.2
-hat-util ~= 0.5.4
+aiohttp ~= 3.8.1
+hat-aio ~= 0.6.0
+hat-json ~= 0.5.3
+hat-util ~= 0.5.5
