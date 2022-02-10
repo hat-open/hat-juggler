@@ -11,9 +11,6 @@ from hat import juggler
 from hat import util
 
 
-pytestmark = pytest.mark.asyncio
-
-
 @pytest.fixture
 def server_port():
     return util.get_unused_udp_port()
