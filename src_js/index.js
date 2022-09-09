@@ -171,6 +171,9 @@ export class Application extends EventTarget {
      * @param {module:@hat-open/renderer.Renderer} renderer renderer
      * @param {string} address juggler server address, see
      *     {@link module:@hat-open/juggler.Connection}
+     * @param {number} syncDelay sync delay in ms
+     * @param {?number} retryDelay connection retry delay in ms, does not
+     *     retry if null
      */
     constructor(
         localPath=null,
@@ -314,6 +317,9 @@ export class Application extends EventTarget {
             this._conn.addEventListener('close', () => closeFuture.setResult());
             await closeFuture;
             this._conn = null;
+            if (this._retryDelay == null) {
+                break;
+            }
             await u.sleep(this._retryDelay);
         }
     }
