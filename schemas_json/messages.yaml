@@ -1,0 +1,52 @@
+---
+"$schema": "http://json-schema.org/schema#"
+id: "hat-juggler://messages.yaml#"
+definitions:
+    request:
+        type: object
+        required:
+            - type
+            - id
+            - name
+            - data
+        properties:
+            type:
+                const: request
+            id:
+                type: integer
+            name:
+                type: string
+    response:
+        type: object
+        required:
+            - type
+            - id
+            - success
+            - data
+        properties:
+            type:
+                const: response
+            id:
+                type: integer
+            success:
+                type: boolean
+    state:
+        type: object
+        required:
+            - type
+            - diff
+        properties:
+            type:
+                const: state
+    notify:
+        type: object
+        required:
+            - type
+            - name
+            - data
+        properties:
+            type:
+                const: notify
+            name:
+                type: string
+...
