@@ -1,5 +1,3 @@
-.. _hat-juggler:
-
 `hat.juggler` - Python juggler library
 ======================================
 
@@ -7,121 +5,71 @@ This library provides Python implementation of
 :ref:`Juggler communication protocol <juggler>`.
 
 
-.. _hat-juggler-connect:
-
 Client
 ------
 
-`hat.juggler.connect` coroutine creates client initiated juggler connection::
+`hat.juggler.connect` coroutine creates client::
 
-    async def connect(address: str, *,
-                      autoflush_delay: typing.Optional[float] = 0.2,
-                      ) -> 'Connection': ...
+    NotifyCb = aio.AsyncCallable[['Client', str, json.Data], None]
 
+    async def connect(address: str,
+                      notify_cb: typing.Optional[NotifyCb] = None
+                      ) -> 'Client':
 
-.. _hat-juggler-listen:
-.. _hat-juggler-Server:
+    class Client(aio.Resource):
+
+        @property
+        def async_group(self) -> aio.Group: ...
+
+        @property
+        def state(self) -> json.Storage: ...
+
+        async def send(self,
+                       name: str,
+                       data: json.Data
+                       ) -> json.Data: ...
+
 
 Server
 ------
 
 `hat.juggler.listen` coroutine creates server listening for incomming
-juggler  connections::
+juggler connections::
 
     ConnectionCb = aio.AsyncCallable[['Connection'], None]
 
+    RequestCb = aio.AsyncCallable[['Connection', str, json.Data], json.Data]
+
     async def listen(host: str,
                      port: int,
-                     connection_cb: ConnectionCb, *,
+                     connection_cb: ConnectionCb,
+                     request_cb: typing.Optional[RequestCb] = None, *,
                      ws_path: str = '/ws',
-                     static_dir: typing.Optional[pathlib.Path] = None,
+                     static_dir: typing.Optional[pathlib.PurePath] = None,
                      index_path: typing.Optional[str] = '/index.html',
-                     pem_file: typing.Optional[pathlib.Path] = None,
+                     pem_file: typing.Optional[pathlib.PurePath] = None,
                      autoflush_delay: typing.Optional[float] = 0.2,
                      shutdown_timeout: float = 0.1
-                     ) -> 'Server': ...
+                     ) -> 'Server':
 
     class Server(aio.Resource):
 
         @property
         def async_group(self) -> aio.Group: ...
 
-
-.. _hat-juggler-Connection:
-
-Connection
-----------
-
-Once juggler connection is established by calling `connect` or by listening
-for incoming connection with `listen`, communication interface for client-side
-and for server-side is the same::
-
     class Connection(aio.Resource):
 
         @property
         def async_group(self) -> aio.Group: ...
 
         @property
-        def local_data(self) -> json.Data: ...
+        def state(self) -> json.Storage: ...
 
-        @property
-        def remote_data(self) -> json.Data: ...
+        async def flush(self): ...
 
-        def register_change_cb(self,
-                               cb: typing.Callable[[], None]
-                               ) -> util.RegisterCallbackHandle: ...
-
-        def set_local_data(self, data: json.Data): ...
-
-        async def flush_local_data(self): ...
-
-        async def send(self, msg: json.Data): ...
-
-        async def receive(self) -> json.Data: ...
-
-
-.. _hat-juggler-RpcConnection:
-
-RpcConnection
--------------
-
-Juggler RPC wrapper for Juggler Connection.
-
-Provided API is similar to Connection's with addition of `actions` and `call`
-coroutine::
-
-    class Connection(aio.Resource):
-
-        def __init__(self,
-                     conn: Connection,
-                     actions: typing.Dict[str, aio.AsyncCallable],
-                     default_action: typing.Optional[aio.AsyncCallable] = None): ...
-
-        @property
-        def async_group(self) -> aio.Group: ...
-
-        @property
-        def local_data(self) -> json.Data: ...
-
-        @property
-        def remote_data(self) -> json.Data: ...
-
-        def register_change_cb(self,
-                               cb: typing.Callable[[], None]
-                               ) -> util.RegisterCallbackHandle: ...
-
-        def set_local_data(self, data: json.Data): ...
-
-        async def flush_local_data(self): ...
-
-        async def send(self, msg: json.Data): ...
-
-        async def receive(self) -> json.Data: ...
-
-        async def call(self,
-                       action: str,
-                       *args: json.Data
-                       ) -> json.Data: ...
+        async def notify(self,
+                         name: str,
+                         data: json.Data): ...
 
 
 Example
@@ -136,25 +84,23 @@ Example
     port = util.get_unused_tcp_port()
     host = '127.0.0.1'
 
-    server_conns = aio.Queue()
-    server = await juggler.listen(host, port, server_conns.put_nowait,
+    conns = aio.Queue()
+    server = await juggler.listen(host, port, conns.put_nowait,
                                   autoflush_delay=0)
 
-    client_conn = await juggler.connect(f'ws://{host}:{port}/ws',
-                                        autoflush_delay=0)
-    server_conn = await server_conns.get()
+    client = await juggler.connect(f'ws://{host}:{port}/ws')
+    conn = await conns.get()
 
-    server_remote_data = aio.Queue()
-    server_conn.register_change_cb(
-        lambda: server_remote_data.put_nowait(server_conn.remote_data))
+    data = aio.Queue()
+    client.state.register_change_cb(data.put_nowait)
 
-    client_conn.set_local_data(123)
-    data = await server_remote_data.get()
+    conn.state.set([], 123)
+    data = await data.get()
     assert data == 123
 
     await server.async_close()
-    await client_conn.wait_closed()
-    await server_conn.wait_closed()
+    await conn.wait_closed()
+    await client.wait_closed()
 
 
 API

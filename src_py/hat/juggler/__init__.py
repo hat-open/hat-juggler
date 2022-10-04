@@ -1,3 +1,5 @@
+"""Juggler communication protocol"""
+
 from hat.juggler.client import (NotifyCb,
                                 JugglerError,
                                 connect,

@@ -1,3 +1,5 @@
+"""Juggler server"""
+
 import asyncio
 import logging
 import pathlib
@@ -8,6 +10,7 @@ import aiohttp.web
 
 from hat import aio
 from hat import json
+from hat import util
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -23,7 +26,7 @@ RequestCb = aio.AsyncCallable[['Connection', str, json.Data], json.Data]
 async def listen(host: str,
                  port: int,
                  connection_cb: ConnectionCb,
-                 request_cb: typing.Optional[RequestCb], *,
+                 request_cb: typing.Optional[RequestCb] = None, *,
                  ws_path: str = '/ws',
                  static_dir: typing.Optional[pathlib.PurePath] = None,
                  index_path: typing.Optional[str] = '/index.html',
@@ -224,7 +227,7 @@ class Connection(aio.Resource):
                     if not self._request_cb:
                         raise Exception('request handler not implemented')
 
-                    res['data'] = await aio.call(self._request_cb,
+                    res['data'] = await aio.call(self._request_cb, self,
                                                  msg['name'], msg['data'])
                     res['success'] = True
 
@@ -325,3 +328,8 @@ def _create_ssl_context(pem_file):
     if pem_file:
         ssl_ctx.load_cert_chain(str(pem_file))
     return ssl_ctx
+
+
+# HACK
+util.register_type_alias('ConnectionCb')
+util.register_type_alias('RequestCb')

@@ -1,3 +1,5 @@
+"""Juggler client"""
+
 import asyncio
 import itertools
 import logging
@@ -7,6 +9,7 @@ import aiohttp
 
 from hat import aio
 from hat import json
+from hat import util
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -161,3 +164,7 @@ class Client(aio.Resource):
     async def _close_ws(self):
         await self._ws.close()
         await self._session.close()
+
+
+# HACK
+util.register_type_alias('NotifyCb')
