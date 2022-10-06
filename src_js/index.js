@@ -8,7 +8,13 @@ import * as u from '@hat-open/util';
 import * as future from '@hat-open/future';
 
 
-function getDefaultAddress() {
+/**
+ * Get default juggler server address
+ *
+ * @function
+ * @return {string}
+ */
+export function getDefaultAddress() {
     const protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
     const hostname = window.location.hostname || 'localhost';
     const port = window.location.port;
@@ -20,10 +26,10 @@ function getDefaultAddress() {
  * Juggler client connection
  *
  * Available events:
- *  - open - connection is opened (detail is undefined)
- *  - close - connection is closed (detail is undefined)
- *  - message - received new message (detail is received message)
- *  - change - remote data changed (detail is new remote data)
+ *  - open - connection is opened (`detail` is undefined)
+ *  - close - connection is closed (`detail` is undefined)
+ *  - notify - received new notification (`detail` is received notification)
+ *  - change - remote state changed (`detail` is new remote state)
  */
 export class Connection extends EventTarget {
 
@@ -33,15 +39,12 @@ export class Connection extends EventTarget {
      *     ``ws[s]://<host>[:<port>][/<path>]``. If not provided, hostname
      *     and port obtained from ``widow.location`` are used instead, with
      *     ``ws`` as a path.
-     * @param {number} syncDelay sync delay in ms
      */
-    constructor(address=getDefaultAddress(), syncDelay=100) {
+    constructor(address=getDefaultAddress()) {
         super();
-        this._syncDelay = syncDelay;
-        this._localData = null;
-        this._remoteData = null;
-        this._delayedSyncID = null;
-        this._syncedLocalData = null;
+        this._state = null;
+        this._nextId = 1;
+        this._futures = new Map();
         this._ws = new WebSocket(address);
         this._ws.addEventListener('open', () => this._onOpen());
         this._ws.addEventListener('close', () => this._onClose());
@@ -49,19 +52,11 @@ export class Connection extends EventTarget {
     }
 
     /**
-     * Local data
+     * Remote server state
      * @type {*}
      */
-    get localData() {
-        return this._localData;
-    }
-
-    /**
-     * Remote data
-     * @type {*}
-     */
-    get remoteData() {
-        return this._remoteData;
+    get state() {
+        return this._state;
     }
 
     /**
@@ -80,33 +75,29 @@ export class Connection extends EventTarget {
     }
 
     /**
-     * Send message
-     * @param {*} msg
-     */
-    send(msg) {
-        if (this.readyState != WebSocket.OPEN) {
-            throw new Error("connection not open");
-        }
-        this._ws.send(JSON.stringify({
-            type: 'MESSAGE',
-            payload: msg
-        }));
-    }
-
-    /**
-     * Set local data
+     * Send request and wait for response
+     * @param {string} name
      * @param {*} data
+     * @return {*} response data
      */
-    setLocalData(data) {
+    async send(name, data) {
         if (this.readyState != WebSocket.OPEN) {
             throw new Error("connection not open");
         }
-        this._localData = data;
-        if (this._delayedSyncID != null)
-            return;
-        this._delayedSyncID = setTimeout(
-            () => { this._onSync(); },
-            this._syncDelay);
+        const id = this._nextId++;
+        this._ws.send(JSON.stringify({
+            type: 'request',
+            id: id,
+            name: name,
+            data: data
+        }));
+        const f = future.create();
+        try {
+            this._futures.set(id, f);
+            return await f;
+        } finally {
+            this._futures.delete(f);
+        }
     }
 
     _onOpen() {
@@ -114,21 +105,33 @@ export class Connection extends EventTarget {
     }
 
     _onClose() {
-        if (this._delayedSyncID != null) {
-            clearTimeout(this._delayedSyncID);
-            this._delayedSyncID = null;
-        }
         this.dispatchEvent(new CustomEvent('close'));
     }
 
     _onMessage(data) {
         try {
             const msg = JSON.parse(data);
-            if (msg.type == 'DATA') {
-                this._remoteData = jiff.patch(msg.payload, this._remoteData);
-                this.dispatchEvent(new CustomEvent('change', {detail: this._remoteData}));
-            } else if (msg.type == 'MESSAGE') {
-                this.dispatchEvent(new CustomEvent('message', {detail: msg.payload}));
+            if (msg.type == 'state') {
+                this._state = jiff.patch(msg.diff, this._state);
+                this.dispatchEvent(new CustomEvent('change', {
+                    detail: this._state
+                }));
+            } else if (msg.type == 'notify') {
+                this.dispatchEvent(new CustomEvent('notify', {
+                    detail: {
+                        name: msg.name,
+                        data: msg.data
+                    }
+                }));
+            } else if (msg.type == 'response') {
+                const f = this._rpcFutures.get(msg.id);
+                if (f && !f.done()) {
+                    if (msg.success) {
+                        f.setResult(msg.data);
+                    } else {
+                        f.setError(msg.data);
+                    }
+                }
             } else {
                 throw new Error('unsupported message type');
             }
@@ -138,18 +141,6 @@ export class Connection extends EventTarget {
         }
     }
 
-    _onSync() {
-        const patch = jiff.diff(this._syncedLocalData, this._localData);
-        if (patch.length > 0) {
-            this._ws.send(JSON.stringify({
-                type: 'DATA',
-                payload: patch
-            }));
-            this._syncedLocalData = this._localData;
-        }
-        this._delayedSyncID = null;
-    }
-
 }
 
 
@@ -157,169 +148,85 @@ export class Connection extends EventTarget {
  * Juggler based application
  *
  * Available events:
- *  - connected - connected to server (detail is undefined)
- *  - disconnected - disconnected from server (detail is undefined)
- *  - message - received new message (detail is received message)
+ *  - connected - connected to server (`detail` is undefined)
+ *  - disconnected - disconnected from server (`detail` is undefined)
+ *  - notify - received new notification (`detail` is received notification)
  */
 export class Application extends EventTarget {
 
     /**
      * Create application
-     * @param {?module:@hat-open/util.Path} localPath local data state path
-     * @param {?module:@hat-open/util.Path} remotePath remote data state path
-     * @param {object} localRpcCbs local RPC function callbacs
+     * @param {?module:@hat-open/util.Path} statePath remote server state path
      * @param {module:@hat-open/renderer.Renderer} renderer renderer
-     * @param {string} address juggler server address, see
+     * @param {string[]} addresses juggler server addresses, see
      *     {@link module:@hat-open/juggler.Connection}
-     * @param {number} syncDelay sync delay in ms
      * @param {?number} retryDelay connection retry delay in ms, does not
      *     retry if null
      */
     constructor(
-        localPath=null,
-        remotePath=null,
-        localRpcCbs={},
+        statePath=null,
         renderer=r,
-        address=getDefaultAddress(),
-        syncDelay=100,
+        addresses=[getDefaultAddress()],
         retryDelay=5000) {
 
         super();
-        this._localPath = localPath;
-        this._remotePath = remotePath;
-        this._localRpcCbs = localRpcCbs;
+        this._statePath = statePath;
         this._renderer = renderer;
-        this._address = address;
-        this._syncDelay = syncDelay;
+        this._addresses = addresses;
         this._retryDelay = retryDelay;
         this._conn = null;
-        this._lastRpcId = 0;
-        this._rpcFutures = new Map();
-        this._rpc = new Proxy({}, {
-            get: (_, action) => (...args) => this._rpcCall(action, args)
-        });
-
-        if (localPath != null)
-            renderer.addEventListener('change', () => this._onRendererChange());
 
         u.delay(() => this._connectLoop());
     }
 
     /**
-     * RPC proxy
-     * @type {*}
+     * Send request and wait for response
+     * @param {string} name
+     * @param {*} data
+     * @return {*} response data
      */
-    get rpc() {
-        return this._rpc;
-    }
-
-    /**
-     * Send message
-     * @param {*} msg
-     */
-    send(msg) {
+    async send(name, data) {
         if (!this._conn)
             throw new Error("connection closed");
-        this._conn.send(msg);
+        return await this._conn.send(name, data);
     }
 
     _onOpen() {
-        if (this._localPath)
-            this._conn.setLocalData(this._renderer.get(this._localPath));
         this.dispatchEvent(new CustomEvent('connected'));
     }
 
     _onClose() {
-        if (this._remotePath)
-            this._renderer.set(this._remotePath, null);
+        if (this._statePath)
+            this._renderer.set(this._statePath, null);
         this.dispatchEvent(new CustomEvent('disconnected'));
     }
 
-    _onMessage(msg) {
-        if (u.isObject(msg) && msg.type == 'rpc') {
-            this._onRpcMessage(msg);
-        } else {
-            this.dispatchEvent(new CustomEvent('message', {detail: msg}));
-        }
+    _onNotify(msg) {
+        this.dispatchEvent(new CustomEvent('notify', {detail: msg}));
     }
 
-    _onRpcMessage(msg) {
-        if (msg.direction == 'request') {
-            this._onRpcReqMessage(msg);
-        } else if (msg.direction == 'response') {
-            this._onRpcResMessage(msg);
-        }
-    }
-
-    _onRpcReqMessage(msg) {
-        let success;
-        let result;
-        try {
-            result = this._localRpcCbs[msg.action](...msg.args);
-            success = true;
-        } catch (e) {
-            result = String(e);
-            success = false;
-        }
-        this.send({
-            type: 'rpc',
-            id: msg.id,
-            direction: 'response',
-            success: success,
-            result: result
-        });
-    }
-
-    _onRpcResMessage(msg) {
-        const f = this._rpcFutures.get(msg.id);
-        this._rpcFutures.delete(msg.id);
-        if (msg.success) {
-            f.setResult(msg.result);
-        } else {
-            f.setError(msg.result);
-        }
-    }
-
-    _onConnectionChange(data) {
-        if (this._remotePath == null)
+    _onChange(data) {
+        if (this._statePath == null)
             return;
-        this._renderer.set(this._remotePath, data);
-    }
-
-    _onRendererChange() {
-        if (!this._conn || this._conn.readyState != WebSocket.OPEN)
-            return;
-        this._conn.setLocalData(this._renderer.get(this._localPath));
-    }
-
-    _rpcCall(action, args) {
-        this._lastRpcId += 1;
-        this.send({
-            type: 'rpc',
-            id: this._lastRpcId,
-            direction: 'request',
-            action: action,
-            args: args});
-        const f = future.create();
-        this._rpcFutures.set(this._lastRpcId, f);
-        return f;
+        this._renderer.set(this._statePath, data);
     }
 
     async _connectLoop() {
         while (true) {
-            this._conn = new Connection(this._address, this._syncDelay);
-            this._conn.addEventListener('open', () => this._onOpen());
-            this._conn.addEventListener('close', () => this._onClose());
-            this._conn.addEventListener('message', evt => this._onMessage(evt.detail));
-            this._conn.addEventListener('change', evt => this._onConnectionChange(evt.detail));
+            for (const address of this._addresses) {
+                this._conn = new Connection(address, this._syncDelay);
+                this._conn.addEventListener('open', () => this._onOpen());
+                this._conn.addEventListener('close', () => this._onClose());
+                this._conn.addEventListener('notify', evt => this._onNotify(evt.detail));
+                this._conn.addEventListener('change', evt => this._onChange(evt.detail));
 
-            const closeFuture = future.create();
-            this._conn.addEventListener('close', () => closeFuture.setResult());
-            await closeFuture;
-            this._conn = null;
-            if (this._retryDelay == null) {
-                break;
+                const closeFuture = future.create();
+                this._conn.addEventListener('close', () => closeFuture.setResult());
+                await closeFuture;
+                this._conn = null;
             }
+            if (this._retryDelay == null)
+                break;
             await u.sleep(this._retryDelay);
         }
     }
