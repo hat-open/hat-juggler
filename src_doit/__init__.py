@@ -1,9 +1,11 @@
 from pathlib import Path
+import subprocess
 
 from hat.doit import common
 from hat.doit.docs import (build_sphinx,
                            build_pdoc)
 from hat.doit.js import (build_npm,
+                         ESLintConf,
                          run_eslint)
 from hat.doit.py import (build_wheel,
                          run_pytest,
@@ -15,6 +17,7 @@ __all__ = ['task_clean_all',
            'task_build',
            'task_build_py',
            'task_build_js',
+           'task_build_ts',
            'task_check',
            'task_test',
            'task_docs']
@@ -29,6 +32,7 @@ pytest_dir = Path('test_pytest')
 build_docs_dir = build_dir / 'docs'
 build_py_dir = build_dir / 'py'
 build_js_dir = build_dir / 'js'
+build_ts_dir = build_dir / 'ts'
 
 
 def task_clean_all():
@@ -68,13 +72,25 @@ def task_build_js():
 
     def build():
         build_npm(
-            src_dir=src_js_dir,
+            src_dir=build_ts_dir,
             dst_dir=build_js_dir,
             name='@hat-open/juggler',
             description='Hat juggler protocol',
             license=common.License.APACHE2,
             homepage='https://github.com/hat-open/hat-juggler',
             repository='hat-open/hat-juggler')
+
+    return {'actions': [build],
+            'task_dep': ['build_ts',
+                         'node_modules']}
+
+
+def task_build_ts():
+    """Build TypeScript"""
+
+    def build():
+        subprocess.run(['node_modules/.bin/tsc'],
+                       check=True)
 
     return {'actions': [build],
             'task_dep': ['node_modules']}
@@ -84,7 +100,7 @@ def task_check():
     """Check"""
     return {'actions': [(run_flake8, [src_py_dir]),
                         (run_flake8, [pytest_dir]),
-                        (run_eslint, [src_js_dir])],
+                        (run_eslint, [src_js_dir, ESLintConf.TS])],
             'task_dep': ['node_modules']}
 
 
