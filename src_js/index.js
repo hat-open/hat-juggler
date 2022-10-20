@@ -34,14 +34,20 @@ export class Connection extends EventTarget {
      *     and port obtained from ``widow.location`` are used instead, with
      *     ``ws`` as a path.
      * @param {number} syncDelay sync delay in ms
+     * @param {number} pingInterval ping interval in ms
+     * @param {number} pongTimeout pong timeout in ms
      */
-    constructor(address=getDefaultAddress(), syncDelay=100) {
+    constructor(address=getDefaultAddress(), syncDelay=100, pingInterval=5000, pongTimeout=5000) {
         super();
         this._syncDelay = syncDelay;
+        this._pingInterval = pingInterval;
+        this._pongTimeout = pongTimeout;
         this._localData = null;
         this._remoteData = null;
         this._delayedSyncID = null;
         this._syncedLocalData = null;
+        this._pingID = null;
+        this._pongID = null;
         this._ws = new WebSocket(address);
         this._ws.addEventListener('open', () => this._onOpen());
         this._ws.addEventListener('close', () => this._onClose());
@@ -110,6 +116,17 @@ export class Connection extends EventTarget {
     }
 
     _onOpen() {
+        this._pingID = setInterval(() => {
+            if (this._pongID != null)
+                return;
+            this._pongID = setTimeout(() => {
+                this.close();
+            }, this._pongTimeout);
+            this._ws.send(JSON.stringify({
+                type: 'PING',
+                payload: {}
+            }));
+        }, this._pingInterval);
         this.dispatchEvent(new CustomEvent('open'));
     }
 
@@ -117,6 +134,14 @@ export class Connection extends EventTarget {
         if (this._delayedSyncID != null) {
             clearTimeout(this._delayedSyncID);
             this._delayedSyncID = null;
+        }
+        if (this._pingID != null) {
+            clearInterval(this._pingID);
+            this._pingID = null;
+        }
+        if (this._pongID != null) {
+            clearTimeout(this._pongID);
+            this._pongID = null;
         }
         this.dispatchEvent(new CustomEvent('close'));
     }
@@ -129,6 +154,16 @@ export class Connection extends EventTarget {
                 this.dispatchEvent(new CustomEvent('change', {detail: this._remoteData}));
             } else if (msg.type == 'MESSAGE') {
                 this.dispatchEvent(new CustomEvent('message', {detail: msg.payload}));
+            } else if (msg.type == 'PING') {
+                this._ws.send(JSON.stringify({
+                    type: 'PONG',
+                    payload: {}
+                }));
+            } else if (msg.type == 'PONG') {
+                if (this._pongID != null) {
+                    clearTimeout(this._pongID);
+                    this._pongID = null;
+                }
             } else {
                 throw new Error('unsupported message type');
             }
@@ -182,6 +217,8 @@ export class Application extends EventTarget {
         renderer=r,
         address=getDefaultAddress(),
         syncDelay=100,
+        pingInterval=5000,
+        pongTimeout=5000,
         retryDelay=5000) {
 
         super();
@@ -191,6 +228,8 @@ export class Application extends EventTarget {
         this._renderer = renderer;
         this._address = address;
         this._syncDelay = syncDelay;
+        this._pingInterval = pingInterval;
+        this._pongTimeout = pongTimeout;
         this._retryDelay = retryDelay;
         this._conn = null;
         this._lastRpcId = 0;
@@ -307,7 +346,7 @@ export class Application extends EventTarget {
 
     async _connectLoop() {
         while (true) {
-            this._conn = new Connection(this._address, this._syncDelay);
+            this._conn = new Connection(this._address, this._syncDelay, this._pingInterval, this._pongTimeout);
             this._conn.addEventListener('open', () => this._onOpen());
             this._conn.addEventListener('close', () => this._onClose());
             this._conn.addEventListener('message', evt => this._onMessage(evt.detail));

@@ -306,6 +306,9 @@ class Connection(aio.Resource):
                                                    msg['payload'])
                     self._remote_change_cbs.notify()
 
+                elif msg['type'] == 'PING':
+                    await self._ws.send_json({'type': 'PONG', 'payload': {}})
+
                 else:
                     raise Exception("invalid message type")
 

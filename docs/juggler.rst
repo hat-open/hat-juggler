@@ -62,6 +62,8 @@ All messages are UTF-8 encoded JSON data defined by following JSON Schema::
             enum:
                 - DATA
                 - MESSAGE
+                - PING
+                - PONG
 
 `DATA` messages are used for continuous synchronization of JSON data. It's
 `payload` parameter contains JSON patch value as defined by
@@ -69,6 +71,8 @@ https://tools.ietf.org/html/rfc6902. This messages are sent by peer once
 local data changes.
 
 `MESSAGE` messages provide asynchronous message passing communication.
+
+`PING` and `PONG` messages provide simple keep alive mechanism.
 
 
 Remote procedure call
