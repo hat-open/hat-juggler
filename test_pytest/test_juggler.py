@@ -256,6 +256,24 @@ async def test_request_response_not_implemented(port, address):
     await server.async_close()
 
 
+@pytest.mark.parametrize("data", [None, 42, '42', [], {'a': [True, {}]}])
+async def test_request_response_empty_name(port, address, data):
+    conn_queue = aio.Queue()
+
+    server = await juggler.listen(host=host,
+                                  port=port,
+                                  connection_cb=conn_queue.put_nowait)
+    client = await juggler.connect(address)
+    conn = await conn_queue.get()
+
+    res = await client.send('', data)
+    assert res == data
+
+    await conn.async_close()
+    await client.async_close()
+    await server.async_close()
+
+
 @pytest.mark.parametrize("change_count", [1, 10, 100, 10000])
 async def test_state(port, address, change_count):
     conn_queue = aio.Queue()

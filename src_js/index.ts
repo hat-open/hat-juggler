@@ -192,6 +192,9 @@ export class Connection extends EventTarget {
 
     _onClose() {
         this.dispatchEvent(new CloseEvent());
+        for (const f of this._futures.values())
+            if (!f.done())
+                f.setError(new Error("connection not open"));
     }
 
     _onMessage(data: string) {
@@ -238,6 +241,8 @@ export class Application extends EventTarget {
     _renderer: Renderer;
     _addresses: string[];
     _retryDelay: number | null;
+    _pingDelay: number | null;
+    _pingTimeout: number;
     _conn: Connection | null;
 
     /**
@@ -255,13 +260,17 @@ export class Application extends EventTarget {
         statePath: u.JPath | null = null,
         renderer: Renderer = r,
         addresses: string[] = [getDefaultAddress()],
-        retryDelay: number | null = 5000
+        retryDelay: number | null = 5000,
+        pingDelay: number | null = 5000,
+        pingTimeout: 5000
     ) {
         super();
         this._statePath = statePath;
         this._renderer = renderer;
         this._addresses = addresses;
         this._retryDelay = retryDelay;
+        this._pingDelay = pingDelay;
+        this._pingTimeout = pingTimeout;
         this._conn = null;
 
         u.delay(() => this._connectLoop());
@@ -276,44 +285,36 @@ export class Application extends EventTarget {
         return await this._conn.send(name, data);
     }
 
-    _onOpen() {
-        this.dispatchEvent(new ConnectedEvent());
-    }
-
-    _onClose() {
-        if (this._statePath)
-            this._renderer.set(this._statePath, null);
-        this.dispatchEvent(new DisconnectedEvent());
-    }
-
-    _onNotify(notification: Notification) {
-        this.dispatchEvent(new NotifyEvent(notification));
-    }
-
-    _onChange(data: u.JData) {
-        if (this._statePath == null)
-            return;
-        this._renderer.set(this._statePath, data);
-    }
-
     async _connectLoop() {
         while (true) {
             for (const address of this._addresses) {
-                this._conn = new Connection(address);
-                this._conn.addEventListener('open', () => this._onOpen());
-                this._conn.addEventListener('close', () => this._onClose());
-                this._conn.addEventListener('notify', evt =>
-                    this._onNotify((evt as NotifyEvent).detail)
-                );
-                this._conn.addEventListener('change', evt =>
-                    this._onChange((evt as ChangeEvent).detail)
-                );
-
                 const closeFuture = u.createFuture<void>();
-                this._conn.addEventListener('close', () =>
-                    closeFuture.setResult()
-                );
+                const conn = new Connection(address);
 
+                conn.addEventListener('open', () => {
+                    this._pingLoop(conn);
+                    this.dispatchEvent(new ConnectedEvent());
+                });
+
+                conn.addEventListener('close', () => {
+                    closeFuture.setResult();
+                    if (this._statePath)
+                        this._renderer.set(this._statePath, null);
+                    this.dispatchEvent(new DisconnectedEvent());
+                });
+
+                conn.addEventListener('notify', evt => {
+                    this.dispatchEvent(evt);
+                });
+
+                conn.addEventListener('change', evt => {
+                    if (this._statePath == null)
+                        return;
+                    const data = (evt as ChangeEvent).detail;
+                    this._renderer.set(this._statePath, data);
+                });
+
+                this._conn = conn;
                 await closeFuture;
                 this._conn = null;
             }
@@ -321,6 +322,25 @@ export class Application extends EventTarget {
                 break;
             await u.sleep(this._retryDelay);
         }
+    }
+
+    async _pingLoop(conn: Connection) {
+        if (this._pingDelay == null)
+            return;
+        while (true) {
+            await u.sleep(this._pingDelay);
+            const timeout = setTimeout(() => {
+                conn.close();
+            }, this._pingTimeout);
+            try {
+                await conn.send('', null);
+            } catch (e) {
+                break;
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+        conn.close();
     }
 
 }

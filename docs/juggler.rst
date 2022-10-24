@@ -71,6 +71,11 @@ Parallel execution of multiple request/response sessions should be supported
 (client can send new requests without receiving responses for all previously
 sent requests).
 
+Requests with empty name should not be notified to user. When server receives
+request with empty name, it should immediately send response to client
+with `success`` flag set to ``true`` and `data` containing same content as
+received in request's data.
+
 
 Server state synchronization
 ----------------------------

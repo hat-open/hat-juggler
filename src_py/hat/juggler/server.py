@@ -223,17 +223,22 @@ class Connection(aio.Resource):
                 res = {'type': 'response',
                        'id': msg['id']}
 
-                try:
-                    if not self._request_cb:
-                        raise Exception('request handler not implemented')
+                if msg['name']:
+                    try:
+                        if not self._request_cb:
+                            raise Exception('request handler not implemented')
 
-                    res['data'] = await aio.call(self._request_cb, self,
-                                                 msg['name'], msg['data'])
+                        res['data'] = await aio.call(self._request_cb, self,
+                                                     msg['name'], msg['data'])
+                        res['success'] = True
+
+                    except Exception as e:
+                        res['data'] = str(e)
+                        res['success'] = False
+
+                else:
+                    res['data'] = msg['data']
                     res['success'] = True
-
-                except Exception as e:
-                    res['data'] = str(e)
-                    res['success'] = False
 
                 await self._ws.send_json(res)
 
