@@ -262,7 +262,7 @@ export class Application extends EventTarget {
         addresses: string[] = [getDefaultAddress()],
         retryDelay: number | null = 5000,
         pingDelay: number | null = 5000,
-        pingTimeout: 5000
+        pingTimeout = 5000
     ) {
         super();
         this._statePath = statePath;
