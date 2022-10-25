@@ -32,7 +32,8 @@ async def listen(host: str,
                  index_path: typing.Optional[str] = '/index.html',
                  pem_file: typing.Optional[pathlib.PurePath] = None,
                  autoflush_delay: typing.Optional[float] = 0.2,
-                 shutdown_timeout: float = 0.1
+                 shutdown_timeout: float = 0.1,
+                 state: typing.Optional[json.Storage] = None
                  ) -> 'Server':
     """Create listening server
 
@@ -67,6 +68,10 @@ async def listen(host: str,
     regular connection close procedures during server shutdown. All connections
     that are not closed during this period are forcefully closed.
 
+    If `state` is ``None``, each connection is initialized with it's own
+    instance of server state. If `state` is set, provided state is shared
+    between all connections.
+
     Args:
         host: listening hostname
         port: listening TCP port
@@ -78,12 +83,14 @@ async def listen(host: str,
         pem_file: PEM file path
         autoflush_delay: autoflush delay
         shutdown_timeout: shutdown timeout
+        state: shared server state
 
     """
     server = Server()
     server._connection_cb = connection_cb
     server._request_cb = request_cb
     server._autoflush_delay = autoflush_delay
+    server._state = state
     server._async_group = aio.Group()
 
     routes = []
@@ -146,7 +153,7 @@ class Server(aio.Resource):
         conn._async_group = self.async_group.create_subgroup()
         conn._request_cb = self._request_cb
         conn._autoflush_delay = self._autoflush_delay
-        conn._state = json.Storage()
+        conn._state = self._state or json.Storage()
         conn._flush_queue = aio.Queue()
 
         conn.async_group.spawn(conn._receive_loop)
