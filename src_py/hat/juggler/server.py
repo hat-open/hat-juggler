@@ -25,7 +25,7 @@ RequestCb = aio.AsyncCallable[['Connection', str, json.Data], json.Data]
 
 async def listen(host: str,
                  port: int,
-                 connection_cb: ConnectionCb,
+                 connection_cb: typing.Optional[ConnectionCb] = None,
                  request_cb: typing.Optional[RequestCb] = None, *,
                  ws_path: str = '/ws',
                  static_dir: typing.Optional[pathlib.PurePath] = None,
@@ -158,7 +158,9 @@ class Server(aio.Resource):
 
         conn.async_group.spawn(conn._receive_loop)
         conn.async_group.spawn(conn._sync_loop)
-        conn.async_group.spawn(aio.call, self._connection_cb, conn)
+
+        if self._connection_cb:
+            conn.async_group.spawn(aio.call, self._connection_cb, conn)
 
         await conn.wait_closed()
 
