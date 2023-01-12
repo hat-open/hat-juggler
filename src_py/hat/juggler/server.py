@@ -33,7 +33,8 @@ async def listen(host: str,
                  pem_file: typing.Optional[pathlib.PurePath] = None,
                  autoflush_delay: typing.Optional[float] = 0.2,
                  shutdown_timeout: float = 0.1,
-                 state: typing.Optional[json.Storage] = None
+                 state: typing.Optional[json.Storage] = None,
+                 parallel_requests: bool = False
                  ) -> 'Server':
     """Create listening server
 
@@ -72,6 +73,10 @@ async def listen(host: str,
     instance of server state. If `state` is set, provided state is shared
     between all connections.
 
+    If `parallel_requests` is set to ``True``, incoming requests will be
+    processed in parallel - processing of subsequent requests can start (and
+    finish) before prior responses are generated.
+
     Args:
         host: listening hostname
         port: listening TCP port
@@ -84,6 +89,7 @@ async def listen(host: str,
         autoflush_delay: autoflush delay
         shutdown_timeout: shutdown timeout
         state: shared server state
+        parallel_requests: parallel request processing
 
     """
     server = Server()
@@ -91,6 +97,7 @@ async def listen(host: str,
     server._request_cb = request_cb
     server._autoflush_delay = autoflush_delay
     server._state = state
+    server._parallel_requests = parallel_requests
     server._async_group = aio.Group()
 
     routes = []
@@ -154,6 +161,7 @@ class Server(aio.Resource):
         conn._request_cb = self._request_cb
         conn._autoflush_delay = self._autoflush_delay
         conn._state = self._state or json.Storage()
+        conn._parallel_requests = self._parallel_requests
         conn._flush_queue = aio.Queue()
 
         conn.async_group.spawn(conn._receive_loop)
@@ -217,7 +225,7 @@ class Connection(aio.Resource):
 
     async def _receive_loop(self):
         try:
-            while True:
+            while self.is_open:
                 msg_ws = await self._ws.receive()
                 if self._ws.closed or msg_ws.type == aiohttp.WSMsgType.CLOSING:
                     break
@@ -229,27 +237,11 @@ class Connection(aio.Resource):
                 if msg['type'] != 'request':
                     raise Exception("invalid message type")
 
-                res = {'type': 'response',
-                       'id': msg['id']}
-
-                if msg['name']:
-                    try:
-                        if not self._request_cb:
-                            raise Exception('request handler not implemented')
-
-                        res['data'] = await aio.call(self._request_cb, self,
-                                                     msg['name'], msg['data'])
-                        res['success'] = True
-
-                    except Exception as e:
-                        res['data'] = str(e)
-                        res['success'] = False
+                if self._parallel_requests:
+                    self.async_group.spawn(self._process_request, msg)
 
                 else:
-                    res['data'] = msg['data']
-                    res['success'] = True
-
-                await self._ws.send_json(res)
+                    await self._process_request(msg)
 
         except ConnectionError:
             pass
@@ -260,6 +252,37 @@ class Connection(aio.Resource):
         finally:
             self.close()
             await aio.uncancellable(self._ws.close())
+
+    async def _process_request(self, req):
+        try:
+            res = {'type': 'response',
+                   'id': req['id']}
+
+            if req['name']:
+                try:
+                    if not self._request_cb:
+                        raise Exception('request handler not implemented')
+
+                    res['data'] = await aio.call(self._request_cb, self,
+                                                 req['name'], req['data'])
+                    res['success'] = True
+
+                except Exception as e:
+                    res['data'] = str(e)
+                    res['success'] = False
+
+            else:
+                res['data'] = req['data']
+                res['success'] = True
+
+            await self._ws.send_json(res)
+
+        except ConnectionError:
+            self.close()
+
+        except Exception as e:
+            self.close()
+            mlog.error("process request error: %s", e, exc_info=e)
 
     async def _sync_loop(self):
         flush_future = None
