@@ -257,7 +257,8 @@ class Connection(aio.Resource):
         if self._async_group.is_closing:
             raise ConnectionError()
 
-        await self._ws.send_json({'type': 'MESSAGE', 'payload': msg})
+        await self._ws.send_str(json.encode({'type': 'MESSAGE',
+                                             'payload': msg}))
 
     async def receive(self) -> json.Data:
         """Receive message
@@ -307,7 +308,8 @@ class Connection(aio.Resource):
                     self._remote_change_cbs.notify()
 
                 elif msg['type'] == 'PING':
-                    await self._ws.send_json({'type': 'PONG', 'payload': {}})
+                    await self._ws.send_str(json.encode({'type': 'PONG',
+                                                         'payload': {}}))
 
                 else:
                     raise Exception("invalid message type")
@@ -365,8 +367,8 @@ class Connection(aio.Resource):
                     diff = json.diff(synced_data, data)
                     synced_data = data
                     if diff:
-                        await self._ws.send_json({'type': 'DATA',
-                                                  'payload': diff})
+                        await self._ws.send_str(json.encode({'type': 'DATA',
+                                                             'payload': diff}))
 
                 if flush_future and not flush_future.done():
                     flush_future.set_result(True)
