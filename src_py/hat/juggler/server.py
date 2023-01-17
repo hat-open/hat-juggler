@@ -219,9 +219,9 @@ class Connection(aio.Resource):
         if not self.is_open:
             raise ConnectionError()
 
-        await self._ws.send_json({'type': 'notify',
-                                  'name': name,
-                                  'data': data})
+        await self._ws.send_str(json.encode({'type': 'notify',
+                                             'name': name,
+                                             'data': data}))
 
     async def _receive_loop(self):
         try:
@@ -275,7 +275,7 @@ class Connection(aio.Resource):
                 res['data'] = req['data']
                 res['success'] = True
 
-            await self._ws.send_json(res)
+            await self._ws.send_str(json.encode(res))
 
         except ConnectionError:
             self.close()
@@ -336,8 +336,9 @@ class Connection(aio.Resource):
                         synced_data = data
 
                         if diff:
-                            await self._ws.send_json({'type': 'state',
-                                                      'diff': diff})
+                            await self._ws.send_str(json.encode({
+                                'type': 'state',
+                                'diff': diff}))
 
                     if flush_future and not flush_future.done():
                         flush_future.set_result(True)
