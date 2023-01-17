@@ -304,7 +304,8 @@ export class Application extends EventTarget {
                 });
 
                 conn.addEventListener('notify', evt => {
-                    this.dispatchEvent(evt);
+                    const notification = (evt as NotifyEvent).detail;
+                    this.dispatchEvent(new NotifyEvent(notification));
                 });
 
                 conn.addEventListener('change', evt => {
