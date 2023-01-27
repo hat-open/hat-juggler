@@ -240,6 +240,7 @@ export class Application extends EventTarget {
     _statePath: u.JPath | null;
     _renderer: Renderer;
     _addresses: string[];
+    _next_address_index: number;
     _retryDelay: number | null;
     _pingDelay: number | null;
     _pingTimeout: number;
@@ -268,12 +269,42 @@ export class Application extends EventTarget {
         this._statePath = statePath;
         this._renderer = renderer;
         this._addresses = addresses;
+        this._next_address_index = 0;
         this._retryDelay = retryDelay;
         this._pingDelay = pingDelay;
         this._pingTimeout = pingTimeout;
         this._conn = null;
 
         u.delay(() => this._connectLoop());
+    }
+
+    /**
+     * Server addresses
+     */
+    get addresses(): string[] {
+        return this._addresses;
+    }
+
+    /**
+     * Set server addresses
+     */
+    setAddresses(addresses: string[]) {
+        this._addresses = addresses;
+        this._next_address_index = 0;
+    }
+
+    /**
+     * Disconnect from current server
+     *
+     * After active connection is closed, application immediately tries to
+     * establish connection using next server address or tries to connect
+     * to  first server address after `retryDelay` elapses.
+     */
+    disconnect() {
+        if (!this._conn)
+            return;
+
+        this._conn.close();
     }
 
     /**
@@ -287,7 +318,8 @@ export class Application extends EventTarget {
 
     async _connectLoop() {
         while (true) {
-            for (const address of this._addresses) {
+            while (this._next_address_index < this._addresses.length) {
+                const address = this._addresses[this._next_address_index++];
                 const closeFuture = u.createFuture<void>();
                 const conn = new Connection(address);
 
@@ -322,6 +354,7 @@ export class Application extends EventTarget {
             if (this._retryDelay == null)
                 break;
             await u.sleep(this._retryDelay);
+            this._next_address_index = 0;
         }
     }
 
