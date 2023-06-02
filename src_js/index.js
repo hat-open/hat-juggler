@@ -8,7 +8,7 @@ import * as u from '@hat-open/util';
 import * as future from '@hat-open/future';
 
 
-function getDefaultAddress() {
+export function getDefaultAddress() {
     const protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
     const hostname = window.location.hostname || 'localhost';
     const port = window.location.port;
