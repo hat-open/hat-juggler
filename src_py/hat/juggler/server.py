@@ -10,31 +10,32 @@ import aiohttp.web
 
 from hat import aio
 from hat import json
-from hat import util
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
 """Module logger"""
 
-ConnectionCb = aio.AsyncCallable[['Connection'], None]
+ConnectionCb: typing.TypeAlias = aio.AsyncCallable[['Connection'], None]
 """Connection callback"""
 
-RequestCb = aio.AsyncCallable[['Connection', str, json.Data], json.Data]
+RequestCb: typing.TypeAlias = aio.AsyncCallable[['Connection', str, json.Data],
+                                                json.Data]
 """Request callback"""
 
 
 async def listen(host: str,
                  port: int,
-                 connection_cb: typing.Optional[ConnectionCb] = None,
-                 request_cb: typing.Optional[RequestCb] = None, *,
+                 connection_cb: ConnectionCb | None = None,
+                 request_cb: RequestCb | None = None, *,
                  ws_path: str = '/ws',
-                 static_dir: typing.Optional[pathlib.PurePath] = None,
-                 index_path: typing.Optional[str] = '/index.html',
-                 pem_file: typing.Optional[pathlib.PurePath] = None,
-                 autoflush_delay: typing.Optional[float] = 0.2,
+                 static_dir: pathlib.PurePath | None = None,
+                 index_path: str | None = '/index.html',
+                 pem_file: pathlib.PurePath | None = None,
+                 autoflush_delay: float | None = 0.2,
                  shutdown_timeout: float = 0.1,
-                 state: typing.Optional[json.Storage] = None,
-                 parallel_requests: bool = False
+                 state: json.Storage | None = None,
+                 parallel_requests: bool = False,
+                 additional_routes: typing.Iterable[aiohttp.web.RouteDef] = []
                  ) -> 'Server':
     """Create listening server
 
@@ -77,6 +78,9 @@ async def listen(host: str,
     processed in parallel - processing of subsequent requests can start (and
     finish) before prior responses are generated.
 
+    Argument `additional_routes` can be used for providing addition aiohttp
+    route definitions handled by running web server.
+
     Args:
         host: listening hostname
         port: listening TCP port
@@ -90,6 +94,7 @@ async def listen(host: str,
         shutdown_timeout: shutdown timeout
         state: shared server state
         parallel_requests: parallel request processing
+        additional_routes: additional route definitions
 
     """
     server = Server()
@@ -110,6 +115,7 @@ async def listen(host: str,
         routes.append(aiohttp.web.get('/', root_handler))
 
     routes.append(aiohttp.web.get(ws_path, server._ws_handler))
+    routes.extend(additional_routes)
 
     if static_dir:
         routes.append(aiohttp.web.static('/', static_dir))
@@ -366,8 +372,3 @@ def _create_ssl_context(pem_file):
     if pem_file:
         ssl_ctx.load_cert_chain(str(pem_file))
     return ssl_ctx
-
-
-# HACK
-util.register_type_alias('ConnectionCb')
-util.register_type_alias('RequestCb')

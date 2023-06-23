@@ -9,13 +9,13 @@ import aiohttp
 
 from hat import aio
 from hat import json
-from hat import util
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
 """Module logger"""
 
-NotifyCb = aio.AsyncCallable[['Client', str, json.Data], None]
+NotifyCb: typing.TypeAlias = aio.AsyncCallable[['Client', str, json.Data],
+                                               None]
 """Notify callback"""
 
 
@@ -32,7 +32,7 @@ class JugglerError(Exception):
 
 
 async def connect(address: str,
-                  notify_cb: typing.Optional[NotifyCb] = None
+                  notify_cb: NotifyCb | None = None
                   ) -> 'Client':
     """Connect to remote server
 
@@ -164,7 +164,3 @@ class Client(aio.Resource):
     async def _close_ws(self):
         await self._ws.close()
         await self._session.close()
-
-
-# HACK
-util.register_type_alias('NotifyCb')
