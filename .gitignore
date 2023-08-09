@@ -1,5 +1,4 @@
 /.doit.db
 /build
 /node_modules
-/test_pytest/.coverage
 __pycache__

@@ -1,4 +1,0 @@
--r requirements.pip.runtime.txt
-
-hat-doit ~= 0.13
-hat-util ~= 0.6.10

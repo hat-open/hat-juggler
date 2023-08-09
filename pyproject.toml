@@ -1,0 +1,43 @@
+[project]
+name = "hat-juggler"
+version = "0.6.11"
+description = "Hat Juggler protocol"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "aiohttp ~= 3.8.4",
+    "hat-aio ~= 0.7.8",
+    "hat-json ~= 0.5.18",
+]
+
+[project.urls]
+Homepage = "http://hat-open.com"
+Repository = "https://github.com/hat-open/hat-juggler.git"
+Documentation = "http://hat-juggler.hat-open.com"
+
+[project.optional-dependencies]
+dev = [
+    "hat-doit ~=0.14.5",
+    "hat-util ~= 0.6.10",
+]
+
+[build-system]
+requires = ["hat-doit ~=0.14.5"]
+build-backend = "hat.doit.pep517"
+
+[tool.hat-doit]
+pytest_profile_dir = "build/profile"
+build_wheel_task = "build_py"
+
+[tool.pytest.ini_options]
+testpaths = ["test_pytest"]
+asyncio_mode = "auto"
+timeout = 300
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.run]
+include = ["src_py/*"]
+data_file = "build/.coverage"
