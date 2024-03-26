@@ -1,6 +1,6 @@
----
-id: "hat-juggler://messages.yaml#"
-definitions:
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-juggler://messages.yaml"
+$defs:
     request:
         type: object
         required:
@@ -48,4 +48,3 @@ definitions:
                 const: notify
             name:
                 type: string
-...
