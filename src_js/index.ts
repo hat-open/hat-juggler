@@ -1,3 +1,5 @@
+import * as jsonpatch from 'fast-json-patch';
+
 import r, { Renderer } from '@hat-open/renderer';
 import * as u from '@hat-open/util';
 
@@ -201,7 +203,10 @@ export class Connection extends EventTarget {
         try {
             const msg = JSON.parse(data) as Msg;
             if (isMsgState(msg)) {
-                this._state = u.patch(msg.diff, this._state);
+                // this._state = u.patch(msg.diff, this._state);
+                this._state = jsonpatch.applyPatch(
+                    this._state, msg.diff, false, true
+                ).newDocument;
                 this.dispatchEvent(new ChangeEvent(this._state));
             } else if (isMsgNotify(msg)) {
                 this.dispatchEvent(new NotifyEvent({
