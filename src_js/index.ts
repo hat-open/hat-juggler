@@ -205,7 +205,7 @@ export class Connection extends EventTarget {
             if (isMsgState(msg)) {
                 // this._state = u.patch(msg.diff, this._state);
                 this._state = jsonpatch.applyPatch(
-                    this._state, msg.diff, false, true
+                    this._state, msg.diff, false, false
                 ).newDocument;
                 this.dispatchEvent(new ChangeEvent(this._state));
             } else if (isMsgNotify(msg)) {
