@@ -1,5 +1,6 @@
 """Juggler server"""
 
+from collections.abc import Iterable
 import asyncio
 import logging
 import pathlib
@@ -35,7 +36,7 @@ async def listen(host: str,
                  shutdown_timeout: float = 0.1,
                  state: json.Storage | None = None,
                  parallel_requests: bool = False,
-                 additional_routes: typing.Iterable[aiohttp.web.RouteDef] = []
+                 additional_routes: Iterable[aiohttp.web.RouteDef] = []
                  ) -> 'Server':
     """Create listening server
 
@@ -122,7 +123,8 @@ async def listen(host: str,
 
     app = aiohttp.web.Application()
     app.add_routes(routes)
-    runner = aiohttp.web.AppRunner(app)
+    runner = aiohttp.web.AppRunner(app,
+                                   shutdown_timeout=shutdown_timeout)
     await runner.setup()
     server.async_group.spawn(aio.call_on_cancel, runner.cleanup)
 
@@ -131,7 +133,6 @@ async def listen(host: str,
         site = aiohttp.web.TCPSite(runner=runner,
                                    host=host,
                                    port=port,
-                                   shutdown_timeout=shutdown_timeout,
                                    ssl_context=ssl_ctx,
                                    reuse_address=True)
         await site.start()
