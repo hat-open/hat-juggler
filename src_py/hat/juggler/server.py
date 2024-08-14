@@ -7,6 +7,7 @@ import pathlib
 import ssl
 import typing
 
+import aiohttp.hdrs
 import aiohttp.web
 
 from hat import aio
@@ -164,6 +165,7 @@ class Server(aio.Resource):
 
         conn = Connection()
         conn._ws = ws
+        conn._remote = _get_remote(request)
         conn._async_group = self.async_group.create_subgroup()
         conn._request_cb = self._request_cb
         conn._autoflush_delay = self._autoflush_delay
@@ -193,6 +195,16 @@ class Connection(aio.Resource):
     def async_group(self) -> aio.Group:
         """Async group"""
         return self._async_group
+
+    @property
+    def remote(self) -> str:
+        """Remote IP address
+
+        Address is obtained from Forwarded or X-Forwarded-For headers. If
+        these headers are not available, socket's remote address is used.
+
+        """
+        return self._remote
 
     @property
     def state(self) -> json.Storage:
@@ -373,3 +385,16 @@ def _create_ssl_context(pem_file):
     if pem_file:
         ssl_ctx.load_cert_chain(str(pem_file))
     return ssl_ctx
+
+
+def _get_remote(request):
+    if request.forwarded:
+        forwarded_for = request.forwarded[-1].get('for')
+        if forwarded_for:
+            return forwarded_for
+
+    forwarded_for = request.headers.getall(aiohttp.hdrs.X_FORWARDED_FOR, [])
+    if len(forwarded_for) == 1:
+        return forwarded_for[0].split(',')[-1].strip()
+
+    return request.remote
