@@ -1,5 +1,4 @@
 from pathlib import Path
-import subprocess
 
 from hat.doit import common
 from hat.doit.docs import (build_sphinx,
