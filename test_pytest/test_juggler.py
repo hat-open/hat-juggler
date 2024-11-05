@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 
 import pytest
 
@@ -365,6 +366,56 @@ async def test_state_sync(port, address, change_count):
 
     await conn.async_close()
     await client.async_close()
+    await server.async_close()
+
+
+async def test_basic_auth(port, address, tmp_path):
+    user = 'user'
+    password = 'password'
+
+    htpasswd_file = tmp_path / 'htpasswd'
+    p = subprocess.run(['openssl', 'passwd', '-apr1', password],
+                       capture_output=True,
+                       text=True,
+                       check=True)
+    htpasswd_file.write_text(f'user:{p.stdout}')
+
+    conn_queue = aio.Queue()
+    server = await juggler.listen(host=host,
+                                  port=port,
+                                  connection_cb=conn_queue.put_nowait,
+                                  htpasswd_file=htpasswd_file)
+
+    for _ in range(2):
+        with pytest.raises(Exception):
+            client = await juggler.connect(address)
+
+        with pytest.raises(Exception):
+            client = await juggler.connect(address,
+                                           user=f'not {user}',
+                                           password=password)
+
+        with pytest.raises(Exception):
+            client = await juggler.connect(address,
+                                           user=user,
+                                           password=f'not {password}')
+
+        assert conn_queue.empty()
+
+        for _ in range(2):
+            client = await juggler.connect(address,
+                                           user=user,
+                                           password=password)
+            conn = await conn_queue.get()
+
+            assert conn.is_open
+            assert client.is_open
+
+            await conn.async_close()
+            await client.async_close()
+
+        assert conn_queue.empty()
+
     await server.async_close()
 
 

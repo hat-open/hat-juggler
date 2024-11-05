@@ -4,6 +4,7 @@ import asyncio
 import itertools
 import logging
 import typing
+import ssl
 
 import aiohttp
 
@@ -32,7 +33,11 @@ class JugglerError(Exception):
 
 
 async def connect(address: str,
-                  notify_cb: NotifyCb | None = None
+                  notify_cb: NotifyCb | None = None,
+                  *,
+                  ssl_ctx: ssl.SSLContext | None = None,
+                  user: str | None = None,
+                  password: str | None = None
                   ) -> 'Client':
     """Connect to remote server
 
@@ -50,7 +55,14 @@ async def connect(address: str,
     client._session = aiohttp.ClientSession()
 
     try:
-        client._ws = await client._session.ws_connect(address, max_msg_size=0)
+        auth = (aiohttp.BasicAuth(user, password)
+                if user is not None and password is not None
+                else None)
+
+        client._ws = await client._session.ws_connect(address,
+                                                      auth=auth,
+                                                      ssl=ssl_ctx or False,
+                                                      max_msg_size=0)
 
     except BaseException:
         await aio.uncancellable(client._session.close())

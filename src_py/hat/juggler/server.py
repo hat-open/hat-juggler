@@ -13,6 +13,8 @@ import aiohttp.web
 from hat import aio
 from hat import json
 
+from hat.juggler.basic_auth import BasicAuthMiddleware
+
 
 mlog: logging.Logger = logging.getLogger(__name__)
 """Module logger"""
@@ -28,10 +30,12 @@ RequestCb: typing.TypeAlias = aio.AsyncCallable[['Connection', str, json.Data],
 async def listen(host: str,
                  port: int,
                  connection_cb: ConnectionCb | None = None,
-                 request_cb: RequestCb | None = None, *,
+                 request_cb: RequestCb | None = None,
+                 *,
                  ws_path: str = '/ws',
                  static_dir: pathlib.PurePath | None = None,
                  index_path: str | None = '/index.html',
+                 htpasswd_file: pathlib.PurePath | None = None,
                  pem_file: pathlib.PurePath | None = None,
                  autoflush_delay: float | None = 0.2,
                  shutdown_timeout: float = 0.1,
@@ -57,6 +61,12 @@ async def listen(host: str,
 
     If `index_path` is set, request for url path ``/`` are redirected to
     `index_path`.
+
+    If `htpasswd_file` is set, HTTP Basic Authentication is enabled.
+    All requests are checked for ``Authorization`` header and only users
+    specified by `htpassword_file` are accepted. `htpasswd_file` is read
+    during initialization and changes to it's content, after initialization
+    finishes, are not monitored.
 
     If `pem_file` is set, server provides `https/wss` communication instead
     of `http/ws` communication.
@@ -107,6 +117,11 @@ async def listen(host: str,
     server._parallel_requests = parallel_requests
     server._async_group = aio.Group()
 
+    middlewares = []
+
+    if htpasswd_file:
+        middlewares.append(BasicAuthMiddleware(htpasswd_file))
+
     routes = []
 
     if index_path:
@@ -122,7 +137,7 @@ async def listen(host: str,
     if static_dir:
         routes.append(aiohttp.web.static('/', static_dir))
 
-    app = aiohttp.web.Application()
+    app = aiohttp.web.Application(middlewares=middlewares)
     app.add_routes(routes)
     runner = aiohttp.web.AppRunner(app,
                                    shutdown_timeout=shutdown_timeout)
