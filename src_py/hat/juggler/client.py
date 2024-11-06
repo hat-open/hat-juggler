@@ -36,8 +36,7 @@ async def connect(address: str,
                   notify_cb: NotifyCb | None = None,
                   *,
                   ssl_ctx: ssl.SSLContext | None = None,
-                  user: str | None = None,
-                  password: str | None = None
+                  auth: aiohttp.BasicAuth | None = None
                   ) -> 'Client':
     """Connect to remote server
 
@@ -55,10 +54,6 @@ async def connect(address: str,
     client._session = aiohttp.ClientSession()
 
     try:
-        auth = (aiohttp.BasicAuth(user, password)
-                if user is not None and password is not None
-                else None)
-
         client._ws = await client._session.ws_connect(address,
                                                       auth=auth,
                                                       ssl=ssl_ctx or False,

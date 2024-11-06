@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 
+import aiohttp
 import pytest
 
 from hat import aio
@@ -372,6 +373,7 @@ async def test_state_sync(port, address, change_count):
 async def test_basic_auth(port, address, tmp_path):
     user = 'user'
     password = 'password'
+    auth = aiohttp.BasicAuth(user, password)
 
     htpasswd_file = tmp_path / 'htpasswd'
     p = subprocess.run(['openssl', 'passwd', '-apr1', password],
@@ -387,25 +389,19 @@ async def test_basic_auth(port, address, tmp_path):
                                   htpasswd_file=htpasswd_file)
 
     for _ in range(2):
-        with pytest.raises(Exception):
-            client = await juggler.connect(address)
-
-        with pytest.raises(Exception):
-            client = await juggler.connect(address,
-                                           user=f'not {user}',
-                                           password=password)
-
-        with pytest.raises(Exception):
-            client = await juggler.connect(address,
-                                           user=user,
-                                           password=f'not {password}')
+        for auth in [None,
+                     aiohttp.BasicAuth(f'not {user}', password),
+                     aiohttp.BasicAuth(user, f'not {password}')]:
+            with pytest.raises(Exception):
+                client = await juggler.connect(address,
+                                               auth=auth)
 
         assert conn_queue.empty()
 
         for _ in range(2):
+            auth = aiohttp.BasicAuth(user, password)
             client = await juggler.connect(address,
-                                           user=user,
-                                           password=password)
+                                           auth=auth)
             conn = await conn_queue.get()
 
             assert conn.is_open
