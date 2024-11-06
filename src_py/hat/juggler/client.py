@@ -35,8 +35,8 @@ class JugglerError(Exception):
 async def connect(address: str,
                   notify_cb: NotifyCb | None = None,
                   *,
-                  ssl_ctx: ssl.SSLContext | None = None,
-                  auth: aiohttp.BasicAuth | None = None
+                  auth: aiohttp.BasicAuth | None = None,
+                  ssl_ctx: ssl.SSLContext | None = None
                   ) -> 'Client':
     """Connect to remote server
 
