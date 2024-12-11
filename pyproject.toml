@@ -1,6 +1,6 @@
 [project]
 name = "hat-juggler"
-version = "0.6.23"
+version = "0.6.24"
 description = "Hat Juggler protocol"
 readme = "README.rst"
 requires-python = ">=3.10"

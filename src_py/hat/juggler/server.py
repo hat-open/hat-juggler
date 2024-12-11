@@ -36,7 +36,7 @@ async def listen(host: str,
                  static_dir: pathlib.PurePath | None = None,
                  index_path: str | None = '/index.html',
                  htpasswd_file: pathlib.PurePath | None = None,
-                 pem_file: pathlib.PurePath | None = None,
+                 ssl_ctx: ssl.SSLContext | None = None,
                  autoflush_delay: float | None = 0.2,
                  shutdown_timeout: float = 0.1,
                  state: json.Storage | None = None,
@@ -68,7 +68,7 @@ async def listen(host: str,
     during initialization and changes to it's content, after initialization
     finishes, are not monitored.
 
-    If `pem_file` is set, server provides `https/wss` communication instead
+    If `ssl_ctx` is set, server provides `https/wss` communication instead
     of `http/ws` communication.
 
     Argument `autoflush_delay` is associated with all connections associated
@@ -145,7 +145,6 @@ async def listen(host: str,
     server.async_group.spawn(aio.call_on_cancel, runner.cleanup)
 
     try:
-        ssl_ctx = _create_ssl_context(pem_file) if pem_file else None
         site = aiohttp.web.TCPSite(runner=runner,
                                    host=host,
                                    port=port,
@@ -392,14 +391,6 @@ class Connection(aio.Resource):
                     break
 
                 flush_future = self._flush_queue.get_nowait()
-
-
-def _create_ssl_context(pem_file):
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
-    ssl_ctx.verify_mode = ssl.VerifyMode.CERT_NONE
-    if pem_file:
-        ssl_ctx.load_cert_chain(str(pem_file))
-    return ssl_ctx
 
 
 def _get_remote(request):

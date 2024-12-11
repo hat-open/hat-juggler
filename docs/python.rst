@@ -42,14 +42,19 @@ juggler connections::
 
     async def listen(host: str,
                      port: int,
-                     connection_cb: ConnectionCb,
-                     request_cb: typing.Optional[RequestCb] = None, *,
+                     connection_cb: ConnectionCb | None = None,
+                     request_cb: RequestCb | None = None,
+                     *,
                      ws_path: str = '/ws',
-                     static_dir: typing.Optional[pathlib.PurePath] = None,
-                     index_path: typing.Optional[str] = '/index.html',
-                     pem_file: typing.Optional[pathlib.PurePath] = None,
-                     autoflush_delay: typing.Optional[float] = 0.2,
-                     shutdown_timeout: float = 0.1
+                     static_dir: pathlib.PurePath | None = None,
+                     index_path: str | None = '/index.html',
+                     htpasswd_file: pathlib.PurePath | None = None,
+                     ssl_ctx: ssl.SSLContext | None = None,
+                     autoflush_delay: float | None = 0.2,
+                     shutdown_timeout: float = 0.1,
+                     state: json.Storage | None = None,
+                     parallel_requests: bool = False,
+                     additional_routes: Iterable[aiohttp.web.RouteDef] = []
                      ) -> 'Server':
 
     class Server(aio.Resource):
@@ -61,6 +66,9 @@ juggler connections::
 
         @property
         def async_group(self) -> aio.Group: ...
+
+        @property
+        def remote(self) -> str: ...
 
         @property
         def state(self) -> json.Storage: ...
