@@ -1,4 +1,5 @@
 import asyncio
+import ssl
 import subprocess
 
 import aiohttp
@@ -20,6 +21,19 @@ def port():
 @pytest.fixture
 def address(port):
     return f'ws://127.0.0.1:{port}/ws'
+
+
+@pytest.fixture
+def pem_path(tmp_path):
+    path = tmp_path / 'pem'
+    subprocess.run(['openssl', 'req', '-batch', '-x509', '-noenc',
+                    '-newkey', 'rsa:2048',
+                    '-days', '1',
+                    '-keyout', str(path),
+                    '-out', str(path)],
+                   stderr=subprocess.DEVNULL,
+                   check=True)
+    return path
 
 
 @pytest.mark.parametrize("client_count", [1, 2, 5])
@@ -412,6 +426,23 @@ async def test_basic_auth(port, address, tmp_path):
 
         assert conn_queue.empty()
 
+    await server.async_close()
+
+
+async def test_get_server_certificate(port, address, pem_path):
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_ctx.load_cert_chain(str(pem_path))
+
+    server = await juggler.listen(host=host,
+                                  port=port,
+                                  ssl_ctx=ssl_ctx)
+
+    executor = aio.Executor()
+    cert = await executor.spawn(ssl.get_server_certificate, (host, port))
+
+    assert cert
+
+    await executor.async_close()
     await server.async_close()
 
 
