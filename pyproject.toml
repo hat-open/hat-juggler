@@ -1,6 +1,6 @@
 [project]
 name = "hat-juggler"
-version = "0.6.26"
+version = "0.7.0-dev"
 description = "Hat Juggler protocol"
 readme = "README.rst"
 requires-python = ">=3.10"
@@ -34,6 +34,7 @@ build_wheel_task = "build_py"
 [tool.pytest.ini_options]
 testpaths = ["test_pytest"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 timeout = 300
 
 [tool.coverage.report]

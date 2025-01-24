@@ -44,6 +44,7 @@ async def async_main():
     mlog.info('creating server')
     srv = await juggler.listen(
         '127.0.0.1', 1234,
+        request_cb=on_request,
         static_dir=root_dir,
         index_path=str(index_path.relative_to(root_dir)))
     mlog.info('server created')
@@ -53,6 +54,10 @@ async def async_main():
 
     finally:
         await aio.uncancellable(cleanup())
+
+
+async def on_request(conn, name, data):
+    print('>>', name, data)
 
 
 if __name__ == '__main__':

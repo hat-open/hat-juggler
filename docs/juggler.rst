@@ -5,14 +5,77 @@ Juggler communication protocol
 
 Juggler is communication protocol used for communication between back-end and
 GUI front-end parts of components. As underlying protocol, Juggler uses
-WebSocket communication and text messages encoding JSON data.
+WebSocket communication.
+
+Juggler is composed of two communication layers:
+
+* transport layer
+* user layer
+
+By defining communication in two distinctive layers, juggler enables transport
+of large user data with benefits of segmented communication. Because of the
+restricted WebSocket API available in web browsers, usage of WebSocket
+messages with limited payload size is required for reliable detection of
+communication activity and correct "keep alive" implementation.
+
+
+Transport layer
+---------------
+
+Juggler transport layer is used for transmission of arbitrary JSON data - user
+layer messages. Each user message is encoded as UTF-8 JSON string and
+segmented into multiple parts. Each segment is is prepended with transport
+header and sent as single WebSocket text message.
+
+In addition to transporting user messages, transport layer provides transport
+packages for detection of broken connection.
+
+Transport packages are formatted as::
+
+        0        1      ...     n+1
+    +--------+----------------------+
+    | header |   payload (n bytes)  |
+    +--------+----------------------+
+
+where:
+
+* header - utf-8 encoded single character identifying package type
+* payload - user message segment (0 or more bytes)
+
+Supported package types are:
+
+* ``0`` - package transporting last segment of single user message
+* ``1`` - package transporting non last segment of single user message
+* ``2`` - ping request
+* ``3`` - ping response
+
+Transport layer between peers is symmetrical. Once client establish connection
+with server, each of the two peers can send user messages and ping requests
+at any time.
+
+When user layer requests sending of user message, transport layer
+will encode and segment original message into segments that do not exceed
+configured maximum segment length. Then each segment is sequentially sent where
+all segments except for last are prepended with package type ``1`` and last is
+prepended with package type ``0``. Only when all segments of single user message
+are sent, transport layer can send next user message.
+
+When peer receives ping request package (package type ``2``) it
+must immediately respond with ping response (package type ``3``) containing same
+payload as ping request. Ping response should be sent without concern to
+active segment sequence - it can occur as additional package between
+two packages containing segments of single user message.
+
+
+User layer
+----------
 
 Communication between peers is asymmetrical - distinct client and server
 entities are identified. Entity responsible for initiating Web socket
 connection is considered client. Entity which receives request for
 Web socket initialization is considered server.
 
-After Web socket initialization, Juggler enables communication which
+After Web socket initialization, Juggler user layer enables communication which
 can be classified as:
 
     * request/response
@@ -20,11 +83,11 @@ can be classified as:
     * server notification
 
 Each of these communication models is independent of one another and
-can be conducted in parallel using single Juggler connection.
+can be conducted in parallel using single Juggler transport layer.
 
 
 Request/response
-----------------
+''''''''''''''''
 
 Request/response communication is based on message exchange where client
 sends `request` message after which server sends associated `response` message.
@@ -71,14 +134,9 @@ Parallel execution of multiple request/response sessions should be supported
 (client can send new requests without receiving responses for all previously
 sent requests).
 
-Requests with empty name should not be notified to user. When server receives
-request with empty name, it should immediately send response to client
-with `success`` flag set to ``true`` and `data` containing same content as
-received in request's data.
-
 
 Server state synchronization
-----------------------------
+''''''''''''''''''''''''''''
 
 After Web socket initialization, server and client should assume existence
 of single data, refereed as `server state`, with initial value of ``null``.
@@ -97,7 +155,7 @@ data.
 
 
 Server notification
--------------------
+'''''''''''''''''''
 
 At any time, server can send unsolicited `notify` messages to client.
 
@@ -114,9 +172,7 @@ At any time, server can send unsolicited `notify` messages to client.
 
 
 Messages
---------
-
-All messages are UTF-8 encoded JSON data defined by following JSON Schema:
+''''''''
 
 .. literalinclude:: ../schemas_json/messages.yaml
     :language: yaml

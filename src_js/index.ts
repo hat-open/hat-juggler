@@ -124,7 +124,13 @@ export class Connection extends EventTarget {
     _state: u.JData = null;
     _nextId = 1;
     _futures = new Map<number, u.Future<u.JData>>();
+    _pingDelayHandle: number | null = null;
+    _pingTimeoutHandle: number | null = null;
+    _receiveQueue: string[] = [];
     _ws: WebSocket;
+    _pingDelay: number | null;
+    _pingTimeout: number;
+    _maxSegmentSize: number;
 
     /**
      * Create connection
@@ -134,8 +140,17 @@ export class Connection extends EventTarget {
      * and port obtained from ``widow.location`` are used instead, with
      * ``ws`` as a path.
      */
-    constructor(address: string = getDefaultAddress()) {
+    constructor(
+        address: string = getDefaultAddress(),
+        pingDelay: number | null = 5000,
+        pingTimeout = 5000,
+        maxSegmentSize = 64 * 1024
+    ) {
         super();
+        this._pingDelay = pingDelay;
+        this._pingTimeout = pingTimeout;
+        this._maxSegmentSize = maxSegmentSize;
+
         this._ws = new WebSocket(address);
         this._ws.addEventListener('open', () => this._onOpen());
         this._ws.addEventListener('close', () => this._onClose());
@@ -170,28 +185,48 @@ export class Connection extends EventTarget {
         if (this.readyState != WebSocket.OPEN) {
             throw new Error("connection not open");
         }
+
         const id = this._nextId++;
-        this._ws.send(JSON.stringify({
+        const msg = {
             type: 'request',
             id: id,
             name: name,
             data: data
-        }));
+        };
+
+        const msgStr = JSON.stringify(msg);
+        let pos = 0;
+        let moreFollows = true;
+
+        while (moreFollows) {
+            const payload = msgStr.substring(pos, pos + this._maxSegmentSize)
+            pos += payload.length;
+
+            moreFollows = pos < msgStr.length;
+            const dataType = (moreFollows ? '1' : '0');
+
+            this._ws.send(dataType + payload);
+        }
+
         const f = u.createFuture<u.JData>();
         try {
             this._futures.set(id, f);
             return await f;
+
         } finally {
             this._futures.delete(id);
         }
     }
 
     _onOpen() {
+        this._resetPing();
+
         this.dispatchEvent(new OpenEvent());
     }
 
     _onClose() {
         this.dispatchEvent(new CloseEvent());
+
         for (const f of this._futures.values())
             if (!f.done())
                 f.setError(new Error("connection not open"));
@@ -199,30 +234,103 @@ export class Connection extends EventTarget {
 
     _onMessage(data: string) {
         try {
-            const msg = JSON.parse(data) as Msg;
-            if (isMsgState(msg)) {
-                this._state = u.patch(msg.diff, this._state);
-                this.dispatchEvent(new ChangeEvent(this._state));
-            } else if (isMsgNotify(msg)) {
-                this.dispatchEvent(new NotifyEvent({
-                    name: msg.name,
-                    data: msg.data
-                }));
-            } else if (isMsgResponse(msg)) {
-                const f = this._futures.get(msg.id);
-                if (f && !f.done()) {
-                    if (msg.success) {
-                        f.setResult(msg.data);
-                    } else {
-                        f.setError(msg.data);
-                    }
-                }
+            this._resetPing();
+
+            const dataType = data[0];
+            const payload = data.substring(1);
+
+            if (dataType == '0') {
+                this._receiveQueue.push(payload);
+
+                const msgStr = this._receiveQueue.join('');
+                this._receiveQueue = [];
+
+                const msg = JSON.parse(msgStr) as Msg;
+                this._processMessage(msg);
+
+            } else if (dataType == '1') {
+                this._receiveQueue.push(payload);
+
+            } else if (dataType == '2') {
+                this._ws.send("3" + payload);
+
+            } else if (dataType == '3') {
+
             } else {
-                throw new Error('unsupported message type');
+                throw new Error('unsupported data type');
             }
+
         } catch (e) {
             this._ws.close();
             throw e;
+        }
+    }
+
+    _onPingTimeout() {
+        if (this._pingTimeoutHandle == null)
+            return;
+
+        this._ws.close();
+    }
+
+    _resetPing() {
+        if (this._pingDelayHandle != null) {
+            clearTimeout(this._pingDelayHandle);
+            this._pingDelayHandle = null;
+        }
+
+        if (this._pingTimeoutHandle != null) {
+            clearTimeout(this._pingTimeoutHandle);
+            this._pingTimeoutHandle = null;
+        }
+
+        if (this._pingDelay != null) {
+            this._pingDelayHandle = setTimeout(() => {
+                this._sendPing();
+            }, this._pingDelay);
+        }
+    }
+
+    _sendPing() {
+        if (this._pingDelayHandle == null)
+            return;
+
+        this._pingDelayHandle = null;
+
+        this._ws.send("2");
+
+        if (this._pingTimeoutHandle == null) {
+            this._pingTimeoutHandle = setTimeout(() => {
+                this._onPingTimeout();
+            }, this._pingTimeout);
+        }
+    }
+
+    _processMessage(msg: Msg) {
+        if (isMsgState(msg)) {
+            this._state = u.patch(msg.diff, this._state);
+
+            this.dispatchEvent(new ChangeEvent(this._state));
+
+        } else if (isMsgNotify(msg)) {
+            this.dispatchEvent(new NotifyEvent({
+                name: msg.name,
+                data: msg.data
+            }));
+
+        } else if (isMsgResponse(msg)) {
+            const f = this._futures.get(msg.id);
+            if (f && !f.done()) {
+                if (msg.success) {
+                    f.setResult(msg.data);
+
+                } else {
+                    f.setError(msg.data);
+                }
+            }
+
+        } else {
+            throw new Error('unsupported message type');
         }
     }
 
@@ -237,14 +345,15 @@ export class Connection extends EventTarget {
  *  - NotifyEvent - received new notification
  */
 export class Application extends EventTarget {
+    _conn: Connection | null = null;
+    _next_address_index: number = 0;
     _statePath: u.JPath | null;
     _renderer: Renderer;
     _addresses: string[];
-    _next_address_index: number;
     _retryDelay: number | null;
     _pingDelay: number | null;
     _pingTimeout: number;
-    _conn: Connection | null;
+    _maxSegmentSize: number;
 
     /**
      * Create application
@@ -263,17 +372,17 @@ export class Application extends EventTarget {
         addresses: string[] = [getDefaultAddress()],
         retryDelay: number | null = 5000,
         pingDelay: number | null = 5000,
-        pingTimeout = 5000
+        pingTimeout = 5000,
+        maxSegmentSize = 64 * 1024
     ) {
         super();
         this._statePath = statePath;
         this._renderer = renderer;
         this._addresses = addresses;
-        this._next_address_index = 0;
         this._retryDelay = retryDelay;
         this._pingDelay = pingDelay;
         this._pingTimeout = pingTimeout;
-        this._conn = null;
+        this._maxSegmentSize = maxSegmentSize;
 
         u.delay(() => this._connectLoop());
     }
@@ -313,6 +422,7 @@ export class Application extends EventTarget {
     async send(name: string, data: u.JData): Promise<u.JData> {
         if (!this._conn)
             throw new Error("connection closed");
+
         return await this._conn.send(name, data);
     }
 
@@ -321,10 +431,12 @@ export class Application extends EventTarget {
             while (this._next_address_index < this._addresses.length) {
                 const address = this._addresses[this._next_address_index++];
                 const closeFuture = u.createFuture<void>();
-                const conn = new Connection(address);
+                const conn = new Connection(
+                    address, this._pingDelay, this._pingTimeout,
+                    this._maxSegmentSize
+                );
 
                 conn.addEventListener('open', () => {
-                    this._pingLoop(conn);
                     this.dispatchEvent(new ConnectedEvent());
                 });
 
@@ -332,17 +444,20 @@ export class Application extends EventTarget {
                     closeFuture.setResult();
                     if (this._statePath)
                         this._renderer.set(this._statePath, null);
+
                     this.dispatchEvent(new DisconnectedEvent());
                 });
 
                 conn.addEventListener('notify', evt => {
                     const notification = (evt as NotifyEvent).detail;
+
                     this.dispatchEvent(new NotifyEvent(notification));
                 });
 
                 conn.addEventListener('change', evt => {
                     if (this._statePath == null)
                         return;
+
                     const data = (evt as ChangeEvent).detail;
                     this._renderer.set(this._statePath, data);
                 });
@@ -351,30 +466,13 @@ export class Application extends EventTarget {
                 await closeFuture;
                 this._conn = null;
             }
+
             if (this._retryDelay == null)
                 break;
+
             await u.sleep(this._retryDelay);
             this._next_address_index = 0;
         }
-    }
-
-    async _pingLoop(conn: Connection) {
-        if (this._pingDelay == null)
-            return;
-        while (true) {
-            await u.sleep(this._pingDelay);
-            const timeout = setTimeout(() => {
-                conn.close();
-            }, this._pingTimeout);
-            try {
-                await conn.send('', null);
-            } catch (e) {
-                break;
-            } finally {
-                clearTimeout(timeout);
-            }
-        }
-        conn.close();
     }
 
 }

@@ -14,6 +14,7 @@ from hat import aio
 from hat import json
 
 from hat.juggler.basic_auth import BasicAuthMiddleware
+from hat.juggler.transport import Transport
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -41,7 +42,11 @@ async def listen(host: str,
                  shutdown_timeout: float = 0.1,
                  state: json.Storage | None = None,
                  parallel_requests: bool = False,
-                 additional_routes: Iterable[aiohttp.web.RouteDef] = []
+                 additional_routes: Iterable[aiohttp.web.RouteDef] = [],
+                 send_queue_size: int = 1024,
+                 max_segment_size: int = 64 * 1024,
+                 ping_delay: float = 30,
+                 ping_timeout: float = 30
                  ) -> 'Server':
     """Create listening server
 
@@ -93,6 +98,8 @@ async def listen(host: str,
     Argument `additional_routes` can be used for providing addition aiohttp
     route definitions handled by running web server.
 
+    todo: send_queue_size max_segment_size ping_delay ping_timeout
+
     Args:
         host: listening hostname
         port: listening TCP port
@@ -115,6 +122,10 @@ async def listen(host: str,
     server._autoflush_delay = autoflush_delay
     server._state = state
     server._parallel_requests = parallel_requests
+    server._send_queue_size = send_queue_size
+    server._max_segment_size = max_segment_size
+    server._ping_delay = ping_delay
+    server._ping_timeout = ping_timeout
     server._async_group = aio.Group()
 
     middlewares = []
@@ -178,7 +189,6 @@ class Server(aio.Resource):
         await ws.prepare(request)
 
         conn = Connection()
-        conn._ws = ws
         conn._remote = _get_remote(request)
         conn._async_group = self.async_group.create_subgroup()
         conn._request_cb = self._request_cb
@@ -187,7 +197,17 @@ class Server(aio.Resource):
         conn._parallel_requests = self._parallel_requests
         conn._flush_queue = aio.Queue()
 
-        conn.async_group.spawn(conn._receive_loop)
+        conn._transport = Transport(ws=ws,
+                                    msg_cb=conn._on_msg,
+                                    send_queue_size=self._send_queue_size,
+                                    max_segment_size=self._max_segment_size,
+                                    ping_delay=self._ping_delay,
+                                    ping_timeout=self._ping_timeout)
+
+        conn.async_group.spawn(aio.call_on_cancel, conn._transport.async_close)
+        conn.async_group.spawn(aio.call_on_done,
+                               conn._transport.wait_closing(), conn.close)
+
         conn.async_group.spawn(conn._sync_loop)
 
         if self._connection_cb:
@@ -252,39 +272,19 @@ class Connection(aio.Resource):
         if not self.is_open:
             raise ConnectionError()
 
-        await self._ws.send_str(json.encode({'type': 'notify',
-                                             'name': name,
-                                             'data': data}))
+        await self._transport.send({'type': 'notify',
+                                    'name': name,
+                                    'data': data})
 
-    async def _receive_loop(self):
-        try:
-            while self.is_open:
-                msg_ws = await self._ws.receive()
-                if self._ws.closed or msg_ws.type == aiohttp.WSMsgType.CLOSING:
-                    break
-                if msg_ws.type != aiohttp.WSMsgType.TEXT:
-                    raise Exception("unsupported ws message type")
+    async def _on_msg(self, msg):
+        if msg['type'] != 'request':
+            raise Exception("invalid message type")
 
-                msg = json.decode(msg_ws.data)
+        if self._parallel_requests:
+            self.async_group.spawn(self._process_request, msg)
 
-                if msg['type'] != 'request':
-                    raise Exception("invalid message type")
-
-                if self._parallel_requests:
-                    self.async_group.spawn(self._process_request, msg)
-
-                else:
-                    await self._process_request(msg)
-
-        except ConnectionError:
-            pass
-
-        except Exception as e:
-            mlog.error("receive loop error: %s", e, exc_info=e)
-
-        finally:
-            self.close()
-            await aio.uncancellable(self._ws.close())
+        else:
+            await self._process_request(msg)
 
     async def _process_request(self, req):
         try:
@@ -308,7 +308,7 @@ class Connection(aio.Resource):
                 res['data'] = req['data']
                 res['success'] = True
 
-            await self._ws.send_str(json.encode(res))
+            await self._transport.send(res)
 
         except ConnectionError:
             self.close()
@@ -369,9 +369,8 @@ class Connection(aio.Resource):
                         synced_data = data
 
                         if diff:
-                            await self._ws.send_str(json.encode({
-                                'type': 'state',
-                                'diff': diff}))
+                            await self._transport.send({'type': 'state',
+                                                        'diff': diff})
 
                     if flush_future and not flush_future.done():
                         flush_future.set_result(True)

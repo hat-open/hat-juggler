@@ -11,6 +11,8 @@ import aiohttp
 from hat import aio
 from hat import json
 
+from hat.juggler.transport import Transport
+
 
 mlog: logging.Logger = logging.getLogger(__name__)
 """Module logger"""
@@ -36,7 +38,11 @@ async def connect(address: str,
                   notify_cb: NotifyCb | None = None,
                   *,
                   auth: aiohttp.BasicAuth | None = None,
-                  ssl_ctx: ssl.SSLContext | None = None
+                  ssl_ctx: ssl.SSLContext | None = None,
+                  send_queue_size: int = 1024,
+                  max_segment_size: int = 64 * 1024,
+                  ping_delay: float = 30,
+                  ping_timeout: float = 30
                   ) -> 'Client':
     """Connect to remote server
 
@@ -47,6 +53,7 @@ async def connect(address: str,
     """
     client = Client()
     client._notify_cb = notify_cb
+    client._loop = asyncio.get_running_loop()
     client._async_group = aio.Group()
     client._state = json.Storage()
     client._res_futures = {}
@@ -54,16 +61,25 @@ async def connect(address: str,
     client._session = aiohttp.ClientSession()
 
     try:
-        client._ws = await client._session.ws_connect(address,
-                                                      auth=auth,
-                                                      ssl=ssl_ctx or False,
-                                                      max_msg_size=0)
+        ws = await client._session.ws_connect(address,
+                                              auth=auth,
+                                              ssl=ssl_ctx or False,
+                                              max_msg_size=0)
 
     except BaseException:
         await aio.uncancellable(client._session.close())
         raise
 
-    client.async_group.spawn(client._receive_loop)
+    client._transport = Transport(ws=ws,
+                                  msg_cb=client._on_msg,
+                                  send_queue_size=send_queue_size,
+                                  max_segment_size=max_segment_size,
+                                  ping_delay=ping_delay,
+                                  ping_timeout=ping_timeout)
+
+    client.async_group.spawn(aio.call_on_cancel, client._on_close)
+    client.async_group.spawn(aio.call_on_done,
+                             client._transport.wait_closing(), client.close)
 
     return client
 
@@ -104,70 +120,49 @@ class Client(aio.Resource):
             raise ConnectionError()
 
         req_id = next(self._next_req_ids)
-        res_future = asyncio.Future()
+        res_future = self._loop.create_future()
         self._res_futures[req_id] = res_future
 
         try:
-            await self._ws.send_json({'type': 'request',
-                                      'id': req_id,
-                                      'name': name,
-                                      'data': data})
+            await self._transport.send({'type': 'request',
+                                        'id': req_id,
+                                        'name': name,
+                                        'data': data})
             return await res_future
 
         finally:
             self._res_futures.pop(req_id)
 
-    async def _receive_loop(self):
-        try:
-            while True:
-                msg_ws = await self._ws.receive()
-                if self._ws.closed or msg_ws.type == aiohttp.WSMsgType.CLOSING:
-                    break
-                if msg_ws.type != aiohttp.WSMsgType.TEXT:
-                    raise Exception("unsupported ws message type")
+    async def _on_close(self):
+        for f in self._res_futures.values():
+            if not f.done():
+                f.set_exception(ConnectionError())
 
-                msg = json.decode(msg_ws.data)
-
-                if msg['type'] == 'response':
-                    res_future = self._res_futures.get(msg['id'])
-                    if not res_future or res_future.done():
-                        continue
-
-                    if msg['success']:
-                        res_future.set_result(msg['data'])
-
-                    else:
-                        res_future.set_exception(JugglerError(msg['data']))
-
-                elif msg['type'] == 'state':
-                    data = json.patch(self._state.data, msg['diff'])
-                    self._state.set([], data)
-
-                elif msg['type'] == 'notify':
-                    if not self._notify_cb:
-                        continue
-
-                    await aio.call(self._notify_cb, self, msg['name'],
-                                   msg['data'])
-
-                else:
-                    raise Exception("invalid message type")
-
-        except ConnectionError:
-            pass
-
-        except Exception as e:
-            mlog.error("receive loop error: %s", e, exc_info=e)
-
-        finally:
-            self.close()
-
-            for f in self._res_futures.values():
-                if not f.done():
-                    f.set_exception(ConnectionError())
-
-            await aio.uncancellable(self._close_ws())
-
-    async def _close_ws(self):
-        await self._ws.close()
+        await self._transport.async_close()
         await self._session.close()
+
+    async def _on_msg(self, msg):
+        if msg['type'] == 'response':
+            res_future = self._res_futures.get(msg['id'])
+            if not res_future or res_future.done():
+                return
+
+            if msg['success']:
+                res_future.set_result(msg['data'])
+
+            else:
+                res_future.set_exception(JugglerError(msg['data']))
+
+        elif msg['type'] == 'state':
+            data = json.patch(self._state.data, msg['diff'])
+            self._state.set([], data)
+
+        elif msg['type'] == 'notify':
+            if not self._notify_cb:
+                return
+
+            await aio.call(self._notify_cb, self, msg['name'],
+                           msg['data'])
+
+        else:
+            raise Exception("invalid message type")
