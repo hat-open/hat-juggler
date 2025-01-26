@@ -1,6 +1,6 @@
 [project]
 name = "hat-juggler"
-version = "0.7.0-dev"
+version = "0.7.0"
 description = "Hat Juggler protocol"
 readme = "README.rst"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "aiohttp ~=3.10.5",
     "hat-aio ~=0.7.11",
-    "hat-json ~=0.6.0",
+    "hat-json ~=0.6.1",
     "hat-util ~=0.6.17",
 ]
 classifiers = [
