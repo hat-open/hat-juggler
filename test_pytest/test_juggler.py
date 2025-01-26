@@ -36,6 +36,14 @@ def pem_path(tmp_path):
     return path
 
 
+@pytest.fixture
+def static_dir(tmp_path):
+    path = tmp_path / 'static'
+    path.mkdir()
+    (path / 'index.html').touch()
+    return path
+
+
 @pytest.mark.parametrize("client_count", [1, 2, 5])
 async def test_connect_listen(port, address, client_count):
     conn_queue = aio.Queue()
@@ -443,6 +451,24 @@ async def test_ping(port, address):
 
     await conn.async_close()
     await client.async_close()
+    await server.async_close()
+
+
+@pytest.mark.parametrize("no_cache", [True, False])
+async def test_no_cache(port, static_dir, no_cache):
+    server = await juggler.listen(host=host,
+                                  port=port,
+                                  static_dir=static_dir,
+                                  no_cache=no_cache)
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'http://{host}:{port}/index.html') as res:
+            if no_cache:
+                assert res.headers['Cache-Control'] == 'no-cache'
+
+            else:
+                assert 'Cache-Control' not in res.headers
+
     await server.async_close()
 
 

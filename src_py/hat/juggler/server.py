@@ -46,7 +46,8 @@ async def listen(host: str,
                  send_queue_size: int = 1024,
                  max_segment_size: int = 64 * 1024,
                  ping_delay: float = 30,
-                 ping_timeout: float = 30
+                 ping_timeout: float = 30,
+                 no_cache: bool = True
                  ) -> 'Server':
     """Create listening server
 
@@ -98,7 +99,21 @@ async def listen(host: str,
     Argument `additional_routes` can be used for providing addition aiohttp
     route definitions handled by running web server.
 
-    todo: send_queue_size max_segment_size ping_delay ping_timeout
+    `send_queue_size` limits number of messages that can be put in send queue.
+    This limit can impact blocking of :meth:`Connection.notify`.
+
+    `max_segment_size` limits maximum size of single segment
+    (transport payload size).
+
+    When connection doesn't receive incoming data,
+    `ping_delay` is time (in seconds) that connection waits before sending
+    ping request.
+
+    `ping_timeout` is time (in seconds), that connection waits for any kind
+    of incoming traffic before closed connection is assumed.
+
+    If `no_cache` is set to ``True``, server will include
+    ``Cache-Control: no-cache`` header in all responses.
 
     Args:
         host: listening hostname
@@ -108,12 +123,18 @@ async def listen(host: str,
         ws_path: WebSocket url path segment
         static_dir: static files directory path
         index_path: index path
-        pem_file: PEM file path
+        htpasswd_file: htpasswd file path
+        ssl_ctx: SSL context
         autoflush_delay: autoflush delay
         shutdown_timeout: shutdown timeout
         state: shared server state
         parallel_requests: parallel request processing
         additional_routes: additional route definitions
+        send_queue_size: send queue size
+        max_segment_size: maximum segment size
+        ping_delay: ping delay
+        ping_timeout: ping timeout
+        no_cache: no cache header
 
     """
     server = Server()
@@ -150,6 +171,10 @@ async def listen(host: str,
 
     app = aiohttp.web.Application(middlewares=middlewares)
     app.add_routes(routes)
+
+    if no_cache:
+        app.on_response_prepare.append(_no_cache_prepare)
+
     runner = aiohttp.web.AppRunner(app,
                                    shutdown_timeout=shutdown_timeout)
     await runner.setup()
@@ -403,3 +428,7 @@ def _get_remote(request):
         return forwarded_for[0].split(',')[-1].strip()
 
     return request.remote
+
+
+async def _no_cache_prepare(request, response):
+    response.headers['Cache-Control'] = 'no-cache'
