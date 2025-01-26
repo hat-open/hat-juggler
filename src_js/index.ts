@@ -199,7 +199,7 @@ export class Connection extends EventTarget {
         let moreFollows = true;
 
         while (moreFollows) {
-            const payload = msgStr.substring(pos, pos + this._maxSegmentSize)
+            const payload = msgStr.substring(pos, pos + this._maxSegmentSize);
             pos += payload.length;
 
             moreFollows = pos < msgStr.length;
@@ -254,7 +254,7 @@ export class Connection extends EventTarget {
             } else if (dataType == '2') {
                 this._ws.send("3" + payload);
 
-            } else if (dataType == '3') {
+            } else if (dataType == '3') {  // eslint-disable-line
 
             } else {
                 throw new Error('unsupported data type');
