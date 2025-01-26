@@ -175,7 +175,7 @@ export class Connection extends EventTarget {
      * Close connection
      */
     close() {
-        this._ws.close(1000);
+        this._close(1000);
     }
 
     /**
@@ -261,7 +261,7 @@ export class Connection extends EventTarget {
             }
 
         } catch (e) {
-            this._ws.close();
+            this._close();
             throw e;
         }
     }
@@ -270,19 +270,11 @@ export class Connection extends EventTarget {
         if (this._pingTimeoutHandle == null)
             return;
 
-        this._ws.close();
+        this._close();
     }
 
     _resetPing() {
-        if (this._pingDelayHandle != null) {
-            clearTimeout(this._pingDelayHandle);
-            this._pingDelayHandle = null;
-        }
-
-        if (this._pingTimeoutHandle != null) {
-            clearTimeout(this._pingTimeoutHandle);
-            this._pingTimeoutHandle = null;
-        }
+        this._stopPing();
 
         if (this._pingDelay != null) {
             this._pingDelayHandle = setTimeout(() => {
@@ -304,6 +296,24 @@ export class Connection extends EventTarget {
                 this._onPingTimeout();
             }, this._pingTimeout);
         }
+    }
+
+    _stopPing() {
+        if (this._pingDelayHandle != null) {
+            clearTimeout(this._pingDelayHandle);
+            this._pingDelayHandle = null;
+        }
+
+        if (this._pingTimeoutHandle != null) {
+            clearTimeout(this._pingTimeoutHandle);
+            this._pingTimeoutHandle = null;
+        }
+    }
+
+    _close(code?: number) {
+        this._stopPing();
+
+        this._ws.close(code);
     }
 
     _processMessage(msg: Msg) {
