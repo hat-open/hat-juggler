@@ -1,5 +1,5 @@
-aiohttp ~=3.10.5
-hat-aio ~=0.7.11
-hat-doit ~=0.16.0
-hat-json ~=0.6.1
-hat-util ~=0.6.17
+aiohttp ~=3.10.11
+hat-aio ~=0.7.12
+hat-doit ~=0.16.2
+hat-json ~=0.6.2
+hat-util ~=0.6.19
