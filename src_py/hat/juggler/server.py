@@ -27,19 +27,13 @@ RequestCb: typing.TypeAlias = aio.AsyncCallable[['Connection', str, json.Data],
                                                 json.Data]
 """Request callback"""
 
-PreHandlerCb: typing.TypeAlias = aio.AsyncCallable[
-    [aiohttp.web.Request],
-    aiohttp.web.StreamResponse | None]
-"""Pre handler callback"""
-
 
 async def listen(host: str,
                  port: int,
                  connection_cb: ConnectionCb | None = None,
                  request_cb: RequestCb | None = None,
                  *,
-                 ws_path: str = '/ws',
-                 ws_pre_handler_cb: PreHandlerCb | None = None,
+                 ws_path: str | None = '/ws',
                  static_dir: pathlib.PurePath | None = None,
                  index_path: str | None = '/index.html',
                  htpasswd_file: pathlib.PurePath | None = None,
@@ -67,10 +61,6 @@ async def listen(host: str,
     unsuccessful `response` message is sent with raised exception as data.
     If `request_cb` is ``None``, each `request` message causes sending
     of unsuccessful `response` message.
-
-    If `ws_pre_handler_cb` is set, it is called before WebSocket upgrade.
-    When this callback returns response other than ``None``, it is used
-    instead of WebSocket upgrade.
 
     If `static_dir` is set, server serves static files is addition to providing
     juggler communication.
@@ -131,7 +121,6 @@ async def listen(host: str,
         connection_cb: connection callback
         request_cb: request callback
         ws_path: WebSocket url path segment
-        ws_pre_handler_cb: WebSocket pre handler callback
         static_dir: static files directory path
         index_path: index path
         htpasswd_file: htpasswd file path
@@ -151,7 +140,6 @@ async def listen(host: str,
     server = Server()
     server._connection_cb = connection_cb
     server._request_cb = request_cb
-    server._ws_pre_handler_cb = ws_pre_handler_cb
     server._autoflush_delay = autoflush_delay
     server._state = state
     server._parallel_requests = parallel_requests
@@ -168,6 +156,9 @@ async def listen(host: str,
 
     routes = []
 
+    if ws_path:
+        routes.append(aiohttp.web.get(ws_path, server._ws_handler))
+
     if index_path:
 
         async def root_handler(request):
@@ -175,7 +166,6 @@ async def listen(host: str,
 
         routes.append(aiohttp.web.get('/', root_handler))
 
-    routes.append(aiohttp.web.get(ws_path, server._ws_handler))
     routes.extend(additional_routes)
 
     if static_dir:
@@ -221,16 +211,15 @@ class Server(aio.Resource):
         """Async group"""
         return self._async_group
 
-    async def _ws_handler(self, request):
-        if self._ws_pre_handler_cb:
-            res = await aio.call(self._ws_pre_handler_cb, request)
-            if res is not None:
-                return res
-
-        ws = aiohttp.web.WebSocketResponse()
-        await ws.prepare(request)
-
+    async def create_connection(self,
+                                request: aiohttp.web.Request
+                                ) -> Connection:
+        """Create connection"""
         conn = Connection()
+
+        conn._ws = aiohttp.web.WebSocketResponse()
+        await conn._ws.prepare(request)
+
         conn._remote = _get_remote(request)
         conn._async_group = self.async_group.create_subgroup()
         conn._request_cb = self._request_cb
@@ -239,7 +228,7 @@ class Server(aio.Resource):
         conn._parallel_requests = self._parallel_requests
         conn._flush_queue = aio.Queue()
 
-        conn._transport = Transport(ws=ws,
+        conn._transport = Transport(ws=conn._ws,
                                     msg_cb=conn._on_msg,
                                     send_queue_size=self._send_queue_size,
                                     max_segment_size=self._max_segment_size,
@@ -255,9 +244,14 @@ class Server(aio.Resource):
         if self._connection_cb:
             conn.async_group.spawn(aio.call, self._connection_cb, conn)
 
+        return conn
+
+    async def _ws_handler(self, request):
+        conn = await self.create_connection(request)
+
         await conn.wait_closed()
 
-        return ws
+        return conn.ws
 
 
 class Connection(aio.Resource):
@@ -286,6 +280,11 @@ class Connection(aio.Resource):
     def state(self) -> json.Storage:
         """Server state"""
         return self._state
+
+    @property
+    def ws(self) -> aiohttp.web.WebSocketResponse:
+        """Associated WebSocket"""
+        return self._ws
 
     async def flush(self):
         """Force synchronization of state data
