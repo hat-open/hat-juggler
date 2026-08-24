@@ -27,6 +27,11 @@ RequestCb: typing.TypeAlias = aio.AsyncCallable[['Connection', str, json.Data],
                                                 json.Data]
 """Request callback"""
 
+PreHandlerCb: typing.TypeAlias = aio.AsyncCallable[
+    [aiohttp.web.Request],
+    aiohttp.web.StreamResponse | None]
+"""Pre handler callback"""
+
 
 async def listen(host: str,
                  port: int,
@@ -34,6 +39,7 @@ async def listen(host: str,
                  request_cb: RequestCb | None = None,
                  *,
                  ws_path: str = '/ws',
+                 ws_pre_handler_cb: PreHandlerCb | None = None,
                  static_dir: pathlib.PurePath | None = None,
                  index_path: str | None = '/index.html',
                  htpasswd_file: pathlib.PurePath | None = None,
@@ -61,6 +67,10 @@ async def listen(host: str,
     unsuccessful `response` message is sent with raised exception as data.
     If `request_cb` is ``None``, each `request` message causes sending
     of unsuccessful `response` message.
+
+    If `ws_pre_handler_cb` is set, it is called before WebSocket upgrade.
+    When this callback returns response other than ``None``, it is used
+    instead of WebSocket upgrade.
 
     If `static_dir` is set, server serves static files is addition to providing
     juggler communication.
@@ -121,6 +131,7 @@ async def listen(host: str,
         connection_cb: connection callback
         request_cb: request callback
         ws_path: WebSocket url path segment
+        ws_pre_handler_cb: WebSocket pre handler callback
         static_dir: static files directory path
         index_path: index path
         htpasswd_file: htpasswd file path
@@ -140,6 +151,7 @@ async def listen(host: str,
     server = Server()
     server._connection_cb = connection_cb
     server._request_cb = request_cb
+    server._ws_pre_handler_cb = ws_pre_handler_cb
     server._autoflush_delay = autoflush_delay
     server._state = state
     server._parallel_requests = parallel_requests
@@ -210,6 +222,11 @@ class Server(aio.Resource):
         return self._async_group
 
     async def _ws_handler(self, request):
+        if self._ws_pre_handler_cb:
+            res = await aio.call(self._ws_pre_handler_cb, request)
+            if res is not None:
+                return res
+
         ws = aiohttp.web.WebSocketResponse()
         await ws.prepare(request)
 

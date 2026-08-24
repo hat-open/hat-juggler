@@ -6,6 +6,7 @@ from hat.juggler.client import (NotifyCb,
                                 Client)
 from hat.juggler.server import (ConnectionCb,
                                 RequestCb,
+                                PreHandlerCb,
                                 listen,
                                 Server,
                                 Connection)
@@ -17,6 +18,7 @@ __all__ = ['NotifyCb',
            'Client',
            'ConnectionCb',
            'RequestCb',
+           'PreHandlerCb',
            'listen',
            'Server',
            'Connection']
