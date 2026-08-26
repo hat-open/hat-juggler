@@ -213,7 +213,7 @@ class Server(aio.Resource):
 
     async def create_connection(self,
                                 request: aiohttp.web.Request
-                                ) -> Connection:
+                                ) -> 'Connection':
         """Create connection"""
         conn = Connection()
 
