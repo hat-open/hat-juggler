@@ -42,13 +42,16 @@ async def connect(address: str,
                   send_queue_size: int = 1024,
                   max_segment_size: int = 64 * 1024,
                   ping_delay: float = 30,
-                  ping_timeout: float = 30
+                  ping_timeout: float = 30,
+                  **kwargs
                   ) -> 'Client':
     """Connect to remote server
 
     `address` represents remote WebSocket URL formated as
     ``<schema>://<host>:<port>/<path>`` where ``<schema>`` is ``ws`` or
     ``wss``.
+
+    Additional arguments are passed directly to `aiohttp.ClientSession`.
 
     """
     client = Client()
@@ -58,7 +61,7 @@ async def connect(address: str,
     client._state = json.Storage()
     client._res_futures = {}
     client._next_req_ids = itertools.count(1)
-    client._session = aiohttp.ClientSession()
+    client._session = aiohttp.ClientSession(**kwargs)
 
     try:
         ws = await client._session.ws_connect(address,
